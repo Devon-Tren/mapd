@@ -2,13 +2,22 @@
   "name": "mapd",
   "version": "0.19.0",
   "description": "Verification-first project-understanding layer for humans and coding agents — deterministic workflow mapping, derived confidence, an interactive chat, a gate-verified fix engine, and an MCP server",
-  "main": "index.js",
   "scripts": {
     "test": "node --test tests/*.test.js",
     "eval:llm": "node scripts/eval-llm.mjs",
     "start": "node src/server.js"
   },
-  "keywords": [],
+  "keywords": [
+    "code-map",
+    "static-analysis",
+    "architecture",
+    "workflow",
+    "dependency-graph",
+    "codebase",
+    "mcp",
+    "coding-agents",
+    "cli"
+  ],
   "author": "",
   "license": "MIT",
   "type": "module",
@@ -32,5 +41,13 @@
     "UAT.md",
     "SETUP.md",
     "LICENSE"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Devon-Tren/mapd.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Devon-Tren/mapd/issues"
+  },
+  "homepage": "https://github.com/Devon-Tren/mapd#readme"
 }
