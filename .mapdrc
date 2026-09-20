@@ -1,0 +1,66 @@
+// Map'd project configuration (JSONC — // and /* */ comments are stripped before parsing).
+// See README.md "Configuration" for the full field reference.
+{
+  "project": {
+    "root": ".",
+    "include": [],
+    "exclude": [
+      "node_modules/**",
+      "dist/**",
+      "build/**",
+      "coverage/**",
+      "eval/results/**",
+      ".next/**",
+      ".git/**"
+    ]
+  },
+  "mapping": {
+    "confidenceThreshold": 0.8,
+    "orphanThreshold": 0.5,
+    "maxFileSizeBytes": 1000000,
+    "cache": true
+  },
+  "chat": {
+    "provider": "kimi",
+    "model": "auto",
+    "autoRunReadOnly": true,
+    "requireApprovalForWrites": true,
+    "allowShell": false,
+    "maxContextTokens": 30000,
+    "maxCommandOutputCharacters": 30000
+  },
+  "fix": {
+    "maxAttempts": 2,
+    "requireApproval": true,
+    "allowedPaths": [],
+    "forbiddenPaths": [
+      ".env",
+      ".env.*",
+      "secrets/**"
+    ],
+    "runTests": true,
+    "runTypecheck": true,
+    "runLint": true
+  },
+  "mcp": {
+    "enabled": true,
+    "transport": "stdio"
+  },
+  "security": {
+    "allowNetworkCommands": false,
+    "allowDestructiveCommands": false,
+    "allowedCommands": [],
+    "deniedCommands": []
+  },
+  "providers": {
+    "anthropic": {
+      "model": ""
+    },
+    "openai": {
+      "model": ""
+    },
+    "kimi": {
+      "model": "kimi-k2.6"
+    }
+  }
+}
