@@ -38,16 +38,18 @@ test("explain: repo signal contributions sum back to repoConfidence", () => {
 });
 
 test("simulate: adding tests raises confidence and re-runs the real scorer", () => {
-  const g = buildScoredGraph(tmpProject());
-  const sim = simulateScore(g.rootDir ?? ".", g, { addTests: ["entry.js", "helper.js"] });
+  const dir = tmpProject();
+  const g = buildScoredGraph(dir);
+  const sim = simulateScore(dir, g, { addTests: ["entry.js", "helper.js"] });
   assert.ok(sim.after > sim.before, "adding tests should raise confidence");
   assert.equal(sim.delta, Number((sim.after - sim.before).toFixed(3)));
   // the simulated number must equal an independent rescore with the same evidence — no invented value
 });
 
 test("simulate: a file matching no workflow file is reported, not silently ignored", () => {
-  const g = buildScoredGraph(tmpProject());
-  const sim = simulateScore(".", g, { addTests: ["does-not-exist.js"] });
+  const dir = tmpProject();
+  const g = buildScoredGraph(dir);
+  const sim = simulateScore(dir, g, { addTests: ["does-not-exist.js"] });
   assert.deepEqual(sim.unmatched, ["does-not-exist.js"]);
   assert.equal(sim.delta, 0, "a phantom file must not move the score");
 });

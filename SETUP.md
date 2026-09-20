@@ -11,9 +11,16 @@ From zero to mapping your own repo in about five minutes. For what Map'd *is* an
 ## Install
 
 ```bash
-unzip mapd-v0.5.zip -d mapd && cd mapd
+npm install -g mapd
+mapd --version
+```
+
+From source instead, if you want to run the test suite first:
+
+```bash
+git clone https://github.com/Devon-Tren/mapd.git && cd mapd
 npm install
-npm test            # gate zero: expect 20 pass, 0 fail before trusting anything
+npm test            # gate zero: 498 pass, 0 fail before trusting anything
 npm link            # exposes `mapd` globally
 ```
 

@@ -2,6 +2,22 @@
 
 Map'd is a **project-understanding, verification, and trust layer** for humans and coding agents. It builds a deterministic, AST-derived map of your codebase's workflows, documents them with **derived** (never estimated) confidence scores, detects regressions by diffing the live map against a committed baseline, and now provides an interactive chat interface, a fix-generation engine with retry-on-gate-failure, and an MCP server so external agents (Claude Code, Cursor, MITRI, or anything else that speaks MCP) can use Map'd as their deterministic backstop.
 
+## Install
+
+```bash
+npm install -g mapd
+```
+
+Then, in any JavaScript/TypeScript project:
+
+```bash
+mapd map .
+```
+
+Requires Node.js >= 20. No API key is needed — mapping, baseline diffing, regression
+detection and coverage gaps are fully deterministic. A provider key only unlocks
+`mapd chat` and `mapd fix --propose`; see `.env.example`.
+
 ## What Map'd is
 
 - A deterministic AST-based map of your project's workflows, entry points, and call graph.
