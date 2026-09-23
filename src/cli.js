@@ -4,7 +4,7 @@
  * Function 2 MVP: map → score → document → detect regressions → propose (never apply) fixes.
  */
 
-import { Command } from "commander";
+import { Command, Help } from "commander";
 import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -75,6 +75,47 @@ program.name("mapd")
   // before the subcommand ever gets a chance to see it. Root itself has no
   // options of its own to misparse, so this is a no-op everywhere else.
   .enablePositionalOptions();
+
+// A flat alphabetical list of 15 verbs tells you nothing about where to start.
+// Group them by the question each one answers, and mark the four that cover
+// almost every session. Commander still prints its own list for `help
+// <command>`; this replaces the top-level dump only.
+const GROUPED_HELP = `Usage: mapd [command] [dir] [options]
+
+Map'd — understand a codebase, then keep it honest.
+
+  UNDERSTAND
+    map        build the map: modules, imports, workflows, risk
+    coverage   which files a test genuinely covers, and which do not
+    chat       ask about this project in plain language
+
+  DECIDE
+    improve    ranked work queue — what lifts confidence most, per effort
+    check      diff against the baseline — CI-friendly exit code
+    verify     one-shot gate: config + map + doctor + score delta
+
+  ACT
+    fix        propose a gate-verified fix for a finding
+
+  SET UP
+    doctor     is this environment healthy?
+    config     .mapdrc — defaults, annotations, validation
+
+  EVERYTHING ELSE
+    tools      MAP.md, watch, modernize, merge help, the change
+               ledger, the MCP server  ->  mapd tools --help
+
+  Every command takes [dir] (default ".").
+  mapd help <command>  for that command's options.
+`;
+// Root only. configureHelp IS inherited, so every subcommand must fall through
+// to Commander's real formatter — otherwise `mapd map --help` prints this
+// screen instead of map's own options.
+const defaultFormatHelp = Help.prototype.formatHelp;
+program.configureHelp({
+  formatHelp: (cmd, helper) =>
+    cmd === program ? GROUPED_HELP : defaultFormatHelp.call(helper, cmd, helper),
+});
 
 function renderTaskContext(data) {
   const lines = [];
@@ -323,7 +364,20 @@ program
 // `tools` — advanced/scriptable functionality that isn't part of the daily
 // map/check/fix/chat loop: still fully supported, just not top-level noise.
 const tools = program.command("tools")
-  .description("Advanced tools: docs, integrate, modernize, watch, test coverage, change ledger, MCP server, improvement planner, command listing");
+  .description("Everything beyond the core loop: docs, coverage, modernization, watch, merge help, the change ledger, and the MCP server");
+tools.addHelpText("after", `
+Grouped:
+  docs       render MAP.md from the map
+  modernize  rule-based modernization scan
+  integrate  classify merge conflicts on a branch
+  changes    what was applied, and roll it back
+  watch      re-map on every change, report deltas live
+  mcp        serve project understanding to agents over MCP
+
+Promoted to the top level. The old paths still work, but prefer:
+  mapd coverage      (was: mapd tools test gaps)
+  mapd improve       (was: mapd tools improve)
+`);
 
 twin(
   [{ cmd: program, cmdOpts: { hidden: true } }, { cmd: tools, cmdOpts: undefined }],
@@ -1085,7 +1139,10 @@ program
   });
 
 twin(
-  [{ cmd: program, cmdOpts: { hidden: true } }, { cmd: tools, cmdOpts: undefined }],
+  // Top level on purpose. "What should I work on?" is one of the handful of
+  // questions people actually open this tool to answer — burying it behind a
+  // noun as vague as `tools` hid the single most useful command in the CLI.
+  [{ cmd: program, cmdOpts: undefined }, { cmd: tools, cmdOpts: { hidden: true } }],
   "improve",
   (c) => c
     .argument("[dir]", "project root", ".")
@@ -1174,6 +1231,9 @@ program
 // Test Guidance — one group over the shared honest-test-credit analysis.
 const TEST_DESC = "Test Guidance: find files lowering testPresence (gaps) and see which test really credits which source (credit)";
 const testGroups = [
+  // `coverage` is the visible name: `mapd test` reads like "run my tests",
+  // which this does not do — it reports which files a test genuinely covers.
+  program.command("coverage").description(TEST_DESC),
   program.command("test", { hidden: true }).description(TEST_DESC),
   tools.command("test").description(TEST_DESC),
 ];
