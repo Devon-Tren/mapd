@@ -22,7 +22,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "mapd": "./src/cli.js"
+    "mapd": "src/cli.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",
