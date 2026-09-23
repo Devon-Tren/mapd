@@ -11,7 +11,7 @@ From zero to mapping your own repo in about five minutes. For what Map'd *is* an
 ## Install
 
 ```bash
-npm install -g mapd
+npm install -g @dev-tren/mapd   # the command is still `mapd`
 mapd --version
 ```
 
@@ -77,7 +77,7 @@ Exit codes are CI-friendly: `mapd check` exits 2 on high-severity findings, 1 on
 The repo ships `.github/workflows/ci.yml` (test matrix: ubuntu/windows/macos × Node 20/22). To gate *your* project's PRs on workflow regressions:
 
 ```yaml
-- run: npm install -g /path/to/mapd   # or npm i -D once published
+- run: npm install -g /path/to/mapd   # or: npm i -g @dev-tren/mapd
 - run: mapd check .                   # fails the job on high-severity regressions
 ```
 

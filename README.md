@@ -5,7 +5,7 @@ Map'd is a **project-understanding, verification, and trust layer** for humans a
 ## Install
 
 ```bash
-npm install -g mapd
+npm install -g @dev-tren/mapd   # the command is still `mapd`
 ```
 
 Then, in any JavaScript/TypeScript project:
