@@ -61,6 +61,9 @@ export function classifyTestCredit(graph) {
     const targets = new Set();
     const names = new Set();
     for (const imp of t.imports ?? []) {
+      // A type-only import exercises nothing at runtime, so it must not earn
+      // test credit — otherwise `import type { Finding }` reads as coverage.
+      if (imp.typeOnly) continue;
       const r = resolveImport(t.file, imp.source);
       if (r) targets.add(r);
       for (const n of imp.names ?? []) names.add(n);
@@ -73,9 +76,12 @@ export function classifyTestCredit(graph) {
     const sNoExt = stripExt(s.file);
     const exportSet = new Set(s.exports ?? []);
 
-    // tests the CURRENT confidence rule would credit: on a test path (already
-    // filtered) AND their path contains this file's basename as a substring.
-    const nameMatched = testMeta.filter((t) => t.file.includes(key));
+    // Credit a test that NAMES this file (tests/logger.test.ts) OR one that
+    // simply IMPORTS it. Gating on the filename alone missed real coverage:
+    // tests/setup.test.ts imports redactSecrets from src/logger.ts, exercises
+    // it properly, and was reported as untested purely because the test is not
+    // called "logger". An import is stronger evidence than a filename.
+    const nameMatched = testMeta.filter((t) => t.file.includes(key) || t.targets.has(sNoExt));
 
     const credits = nameMatched.map((t) => {
       const pathLinked = t.targets.has(sNoExt);

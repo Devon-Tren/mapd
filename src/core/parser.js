@@ -190,6 +190,14 @@ export function parseJsFile(absPath, relPath) {
       node.imports.push({
         source: p.node.source.value,
         names: p.node.specifiers.map((s) => s.local.name),
+        // `import type { X }` is erased at compile time — it creates no runtime
+        // dependency. Flagged so test credit can tell "a test exercises this"
+        // from "a test borrows its types", which are not the same claim. Only
+        // present when true, so the common record shape is unchanged.
+        ...(p.node.importKind === "type" ||
+        (p.node.specifiers.length > 0 && p.node.specifiers.every((sp) => sp.importKind === "type"))
+          ? { typeOnly: true }
+          : {}),
       });
     },
     // import("./x.js") with a STATIC string specifier is a real, resolvable

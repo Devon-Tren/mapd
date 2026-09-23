@@ -30,6 +30,25 @@ const GLOBALS = new Set([
   "parseFloat", "isNaN", "structuredClone", "queueMicrotask", "require", "import",
 ]);
 
+/** tsconfig's outDir/rootDir, tolerating comments and trailing commas. */
+function readBuildDirs(rootDir) {
+  for (const name of ["tsconfig.json", "jsconfig.json"]) {
+    try {
+      const raw = fs.readFileSync(path.join(rootDir, name), "utf8");
+      const stripped = raw
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1")
+        .replace(/,(\s*[}\]])/g, "$1");
+      const co = JSON.parse(stripped).compilerOptions ?? {};
+      const norm = (v) => (typeof v === "string" ? v.replace(/^\.\//, "").replace(/\/$/, "") : null);
+      if (co.outDir) return { outDir: norm(co.outDir), rootDir: norm(co.rootDir) };
+    } catch {
+      // absent or unparseable — the conventional fallbacks still apply
+    }
+  }
+  return { outDir: null, rootDir: null };
+}
+
 export function buildGraph(rootDir, parseResult, pkg, { annotations = {} } = {}) {
   const { files } = parseResult;
   const fileSet = new Set(files.map((f) => f.file.split(path.sep).join("/")));
@@ -150,8 +169,58 @@ export function buildGraph(rootDir, parseResult, pkg, { annotations = {} } = {})
 
   // ---- entry points ----------------------------------------------------
   const entryPoints = [];
+
+  /**
+   * package.json points at BUILD OUTPUT ("bin": "dist/cli.js"), but the graph
+   * contains SOURCE. Taking the declared path literally meant the real entry
+   * point silently vanished: a TypeScript CLI whose bin is dist/cli.js scored
+   * zero real entries, every workflow collapsed, and almost every file looked
+   * unreachable. Map the declared path back to the source that produces it.
+   */
+  const SRC_EXTS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
+  const BUILD_DIRS = ["dist", "build", "lib", "out", "output", "es", "esm", "cjs", ".output"];
+
+  const toSource = (declared) => {
+    if (fileSet.has(declared)) return declared;           // already source
+    const noExt = declared.replace(/\.[cm]?[jt]sx?$/, "");
+    const candidates = [];
+
+    // tsconfig is authoritative when it says where output goes.
+    const { outDir, rootDir: srcRoot } = readBuildDirs(rootDir);
+    if (outDir && noExt.startsWith(outDir + "/")) {
+      const rel = noExt.slice(outDir.length + 1);
+      for (const base of [srcRoot, "src", "source", ""].filter((v) => v != null)) {
+        candidates.push(base ? `${base}/${rel}` : rel);
+      }
+    }
+    // Otherwise strip a conventional build directory and try the usual sources.
+    const seg = noExt.split("/");
+    if (seg.length > 1 && BUILD_DIRS.includes(seg[0])) {
+      const rel = seg.slice(1).join("/");
+      for (const base of ["src", "source", "lib", ""]) candidates.push(base ? `${base}/${rel}` : rel);
+    }
+
+    for (const c of candidates) {
+      for (const ext of SRC_EXTS) {
+        if (fileSet.has(c + ext)) return c + ext;
+      }
+      if (fileSet.has(c)) return c;
+    }
+    return null;
+  };
+
   const addEntry = (file, kind, detail) => {
-    if (fileSet.has(file)) entryPoints.push({ file, kind, detail });
+    const resolved = toSource(file);
+    if (!resolved) return;
+    // Declared twice (bin AND main pointing at the same build file) is one entry.
+    if (entryPoints.some((e) => e.file === resolved && e.kind === kind)) return;
+    entryPoints.push({
+      file: resolved,
+      kind,
+      detail,
+      // Keep the declaration visible so the mapping is auditable, not magic.
+      ...(resolved === file ? {} : { declaredAs: file }),
+    });
   };
   if (pkg?.bin) {
     const bins = typeof pkg.bin === "string" ? { [pkg.name]: pkg.bin } : pkg.bin;
