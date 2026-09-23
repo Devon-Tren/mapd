@@ -1188,7 +1188,16 @@ for (const testCmd of testGroups) {
       const abs = path.resolve(dir);
       const analysis = analyzeTestCoverage(abs, buildScoredGraph(abs));
       const gaps = testGaps(analysis, { includeShallow: opts.shallow });
-      if (opts.json) { console.log(JSON.stringify({ summary: analysis.summary, rule: analysis.rule, gaps }, null, 2)); return; }
+      if (opts.json) {
+        // Emit EVERY file's status, not just the gaps. A consumer that sees
+        // only gaps cannot tell "tested" from "never assessed", and the safe
+        // default it picks will be wrong either way — User-Tests defaulted the
+        // silence to "tested-real" and reported 42/44 covered on a repo with
+        // 13 untested files.
+        const files = (analysis.files ?? []).map((c) => ({ file: c.file, status: c.status, inWorkflow: c.inWorkflow }));
+        console.log(JSON.stringify({ summary: analysis.summary, rule: analysis.rule, gaps, files }, null, 2));
+        return;
+      }
       console.log(renderTestGaps(analysis, gaps, themeHelpers));
     });
 
