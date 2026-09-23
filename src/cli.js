@@ -105,6 +105,15 @@ Map'd — understand a codebase, then keep it honest.
     tools      MAP.md, watch, modernize, merge help, the change
                ledger, the MCP server  ->  mapd tools --help
 
+  FREE by default — every command above is deterministic static analysis.
+  No API key, no network, no spend.
+
+  An API key adds only: open-ended chat Q&A, fix proposals, conflict
+  resolution, and MAP.md narration. Set ANTHROPIC_API_KEY, OPENAI_API_KEY
+  or KIMI_API_KEY (environment, .env, or ~/.env).
+  mapd doctor        shows which provider, if any, is detected
+  mapd chat --free   stays offline even when a key is configured
+
   Every command takes [dir] (default ".").
   mapd help <command>  for that command's options.
 `;
@@ -950,9 +959,16 @@ twin(
 
 program
   .command("chat")
+  .option("--free", "deterministic only: answer from the map, never call a model (no spend), even if a key is configured")
   .argument("[dirOrQuery...]", "project root, and/or a one-shot query. A leading real directory is used as the root; anything else is joined into the query. With a query, chat answers once and exits (the natural-language router) instead of starting the REPL.")
   .description("Start an interactive, project-aware chat session (exit with `mapd chat end`, exit, quit, or /end). Pass a query to get one answer and exit instead — same engine, non-interactive.")
-  .action(async (args) => {
+  .action(async (args, opts) => {
+    // --free forces the null provider for this process: the map answers what
+    // it can and open-ended questions decline, rather than quietly spending.
+    if (opts?.free) {
+      for (const k of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "KIMI_API_KEY"]) delete process.env[k];
+      process.env.MAPD_FREE = "1";
+    }
     let dir = ".";
     let queryTokens = args;
     if (args.length) {

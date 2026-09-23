@@ -20,6 +20,7 @@
  */
 
 import { createAnthropicClientLoader } from "./anthropicClient.js";
+import { getProvider } from "./provider.js";
 
 const DEFAULT_MODEL = process.env.MAPD_MODEL ?? "claude-sonnet-4-6";
 
@@ -124,7 +125,16 @@ export async function proposeFix(finding, relevantSources, retryFeedback = null,
 }
 
 export function llmAvailable() {
-  return !!process.env.ANTHROPIC_API_KEY;
+  // Ask the provider layer, which is the same thing `mapd doctor` reports.
+  // This used to check ANTHROPIC_API_KEY alone, so a user with only
+  // OPENAI_API_KEY or KIMI_API_KEY was told "kimi provider available" by
+  // doctor and then silently refused narration, fix proposals and conflict
+  // resolution — two subsystems disagreeing about whether a key exists.
+  try {
+    return getProvider().available();
+  } catch {
+    return false;
+  }
 }
 
 /**

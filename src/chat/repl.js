@@ -381,6 +381,14 @@ export async function handleInput(text, ctx) {
 
     default: {
       if (!ctx.provider.available()) {
+        // --free suppresses a provider that IS configured. Saying "none
+        // configured" there would be untrue, and would send the user hunting
+        // for a key they already have.
+        if (process.env.MAPD_FREE === "1") {
+          return "That one needs a model, and --free keeps this session offline. " +
+            "Everything the map can answer still works here (try /help). " +
+            "Drop --free to let it answer open-ended questions.";
+        }
         return "I don't understand that yet (no LLM provider configured for open-ended Q&A). Try /help, " +
           "or configure ANTHROPIC_API_KEY / OPENAI_API_KEY / KIMI_API_KEY (in .env or ~/.env) for grounded project Q&A. " +
           "Run `mapd doctor` here to see what's actually detected.";
