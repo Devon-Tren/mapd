@@ -20,6 +20,7 @@ import { diffWorkspace } from "./workspace.js";
 import { buildScoredGraph } from "./intelligence.js";
 import { diffGraphs } from "./regression.js";
 import { detectPackageManager } from "./graph.js";
+import { platformCommand } from "./proc.js";
 
 /** Parse source held in memory by round-tripping through a temp file. */
 export function parseSource(source, label) {
@@ -66,9 +67,8 @@ export function runStandardGates({ source, label, requiredExports, requiredFunct
 /** G4: best-effort — run a resolvable test command in an isolated cwd. Never fabricates a result. */
 function runTestGate(testCommand, cwd) {
   try {
-    execFileSync(testCommand[0], testCommand.slice(1), {
-      cwd, stdio: ["ignore", "pipe", "pipe"], timeout: 120_000,
-    });
+    const pc = platformCommand(testCommand[0], testCommand.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
+    execFileSync(pc.file, pc.args, pc.options);
     return { gate: "G4-tests-pass", passed: true };
   } catch (e) {
     return {
@@ -135,7 +135,8 @@ export function runPatchSafetyGate({ ws, patch, forbiddenPaths = [], maxFileSize
 
 function runPackageManagerScript(cwd, manager, args, timeoutMs) {
   try {
-    execFileSync(manager, args, { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs });
+    const pc = platformCommand(manager, args, { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs });
+    execFileSync(pc.file, pc.args, pc.options);
     return { script: `${manager} ${args.join(" ")}`, passed: true };
   } catch (e) {
     return {

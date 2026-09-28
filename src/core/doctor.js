@@ -14,6 +14,7 @@ import { getProvider } from "../agents/provider.js";
 import { describeModelChoice } from "../agents/modelResolver.js";
 import { checkEnvFiles } from "./envFiles.js";
 import { checkReportFreshness } from "./staleness.js";
+import { platformCommand } from "./proc.js";
 
 function hasGitRepo(rootDir) {
   try {
@@ -37,7 +38,8 @@ function checkNodeVersion(pkg) {
 /** Is the detected (or default) package manager binary actually resolvable, not just assumed present? */
 function packageManagerAvailable(manager) {
   try {
-    execFileSync(manager, ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    const pc = platformCommand(manager, ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync(pc.file, pc.args, pc.options);
     return true;
   } catch {
     return false;

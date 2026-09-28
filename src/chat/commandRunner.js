@@ -11,9 +11,10 @@
  * the session ends.
  */
 
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { classifyCommand, isPermitted } from "../core/policy.js";
 import { redactSecrets } from "../core/security.js";
+import { platformCommand } from "../core/proc.js";
 
 const activeChildren = new Set();
 
@@ -21,7 +22,11 @@ export function getActiveChildren() { return activeChildren; }
 
 export function killActiveChildren() {
   for (const child of activeChildren) {
-    try { child.kill("SIGTERM"); } catch { /* already exited */ }
+    try {
+      // on Windows the child is a shell wrapping npm/node: kill the whole tree, not just the shell
+      if (process.platform === "win32" && child.pid) execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      else child.kill("SIGTERM");
+    } catch { /* already exited */ }
   }
   activeChildren.clear();
 }
@@ -45,10 +50,13 @@ export async function runCommand(cmd, args, { cwd, config = {}, approved = false
   }
 
   const outCap = maxOutputChars ?? config.chat?.maxCommandOutputCharacters ?? 30_000;
+  let pc;
+  try { pc = platformCommand(cmd, args, { cwd }); }
+  catch (e) { return { ok: false, denied: true, classification, reason: e.message }; }
 
   if (classification === "networked") {
     return new Promise((resolve) => {
-      const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(pc.file, pc.args, { ...pc.options, stdio: ["ignore", "pipe", "pipe"] });
       activeChildren.add(child);
       let out = "";
       child.stdout?.on("data", (d) => { out += d; });
@@ -63,7 +71,7 @@ export async function runCommand(cmd, args, { cwd, config = {}, approved = false
   }
 
   return new Promise((resolve) => {
-    const child = execFile(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const child = execFile(pc.file, pc.args, { ...pc.options, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       activeChildren.delete(child);
       resolve({
         ok: !err, classification,

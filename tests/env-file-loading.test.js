@@ -12,6 +12,8 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+const homeEnv = (dir) => ({ HOME: dir, USERPROFILE: dir });
+
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.js");
 
 function tmpProject() {
@@ -25,7 +27,7 @@ function tmpProject() {
  * A real ~/.env may legitimately exist on whoever's machine runs this suite
  * (that's the whole point of the user-level fallback feature) — so every test
  * here redirects HOME to an empty temp directory (os.homedir() respects the
- * HOME env var) rather than relying on the real one being absent.
+ * HOME env var — USERPROFILE on Windows, so homeEnv sets both) rather than relying on the real one being absent.
  */
 function fakeEmptyHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mapd-fakehome-"));
@@ -34,7 +36,7 @@ function fakeEmptyHome() {
 test("mapd doctor: a .env file in cwd is loaded and reflected in provider-configured", () => {
   const dir = tmpProject();
   fs.writeFileSync(path.join(dir, ".env"), "ANTHROPIC_API_KEY=sk-ant-test-not-real\n");
-  const env = { ...process.env, HOME: fakeEmptyHome() };
+  const env = { ...process.env, ...homeEnv(fakeEmptyHome()) };
   delete env.ANTHROPIC_API_KEY;
   delete env.OPENAI_API_KEY;
   delete env.KIMI_API_KEY;
@@ -46,7 +48,7 @@ test("mapd doctor: a .env file in cwd is loaded and reflected in provider-config
 test("mapd doctor: an already-exported shell variable is never overwritten by .env", () => {
   const dir = tmpProject();
   fs.writeFileSync(path.join(dir, ".env"), "ANTHROPIC_API_KEY=sk-ant-from-dotenv\n");
-  const env = { ...process.env, ANTHROPIC_API_KEY: "sk-ant-from-shell", HOME: fakeEmptyHome() };
+  const env = { ...process.env, ANTHROPIC_API_KEY: "sk-ant-from-shell", ...homeEnv(fakeEmptyHome()) };
   delete env.OPENAI_API_KEY;
   delete env.KIMI_API_KEY;
   // Prove precedence indirectly: doctor never prints the value, so assert via
@@ -61,7 +63,7 @@ test("mapd doctor: an already-exported shell variable is never overwritten by .e
 
 test("mapd doctor: with no .env and no exported key, reports deterministic mode honestly", () => {
   const dir = tmpProject();
-  const env = { ...process.env, HOME: fakeEmptyHome() };
+  const env = { ...process.env, ...homeEnv(fakeEmptyHome()) };
   delete env.ANTHROPIC_API_KEY;
   delete env.OPENAI_API_KEY;
   delete env.KIMI_API_KEY;
@@ -74,7 +76,7 @@ test("mapd doctor: a user-level ~\\/.env fills in a key when the project has no 
   const dir = tmpProject();
   const home = fakeEmptyHome();
   fs.writeFileSync(path.join(home, ".env"), "KIMI_API_KEY=sk-kimi-from-user-level\n");
-  const env = { ...process.env, HOME: home };
+  const env = { ...process.env, ...homeEnv(home) };
   delete env.ANTHROPIC_API_KEY;
   delete env.OPENAI_API_KEY;
   delete env.KIMI_API_KEY;
@@ -88,7 +90,7 @@ test("mapd doctor: a project .env takes precedence over a user-level ~\\/.env fo
   const home = fakeEmptyHome();
   fs.writeFileSync(path.join(home, ".env"), "ANTHROPIC_API_KEY=sk-ant-from-user-level\nKIMI_API_KEY=sk-kimi-from-user-level\n");
   fs.writeFileSync(path.join(dir, ".env"), "KIMI_API_KEY=sk-kimi-from-project\n");
-  const env = { ...process.env, HOME: home };
+  const env = { ...process.env, ...homeEnv(home) };
   delete env.ANTHROPIC_API_KEY;
   delete env.OPENAI_API_KEY;
   delete env.KIMI_API_KEY;
