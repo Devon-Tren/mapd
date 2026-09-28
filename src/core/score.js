@@ -11,7 +11,7 @@
  */
 
 import { buildScoredGraph } from "./intelligence.js";
-import { scoreWorkflow } from "./confidence.js";
+import { scoreWorkflow, aggregateRepo, REPO_COVERAGE_WEIGHT } from "./confidence.js";
 import { loadBaseline } from "./regression.js";
 import { bold, dim, red, green, yellow, cyan, confidenceColor } from "./theme.js";
 
@@ -20,10 +20,10 @@ const r3 = (x) => Number(x.toFixed(3));
 /** Signal weights are fixed in confidence.js; mirror their intent for prose. */
 const SIGNAL_BLURB = {
   parseIntegrity: "workflow files parsed cleanly (heuristic-parsed files earn half credit)",
-  resolutionRate: "call edges resolved to a definition",
+  resolutionRate: "this workflow's own call edges resolved to a definition",
   testPresence: "workflow files with a matching test file",
   stability: "inverse code churn (needs git history)",
-  coverageOfRepo: "repo files reached by any workflow",
+  coverageOfRepo: "repo files reached by any workflow (repo-level, not per workflow)",
 };
 
 /**
@@ -31,9 +31,10 @@ const SIGNAL_BLURB = {
  * signal in a workflow: effectiveWeight = weight / (sum of available weights),
  * contribution = value × effectiveWeight (these sum to the workflow score),
  * cost = (1 − value) × effectiveWeight (what this weak signal costs the score).
- * Repo-wide figures weight each workflow by its file share — the same size
- * weighting scoreGraph uses for repoConfidence — so repo contributions sum
- * back to repoConfidence.
+ * Repo-wide figures weight each workflow by its file share and by the
+ * workflow part of the repo formula (1 − REPO_COVERAGE_WEIGHT), then add the
+ * repo-level coverageOfRepo term — exactly aggregateRepo's formula, so repo
+ * contributions sum back to repoConfidence.
  */
 export function explainScore(graph) {
   const totalFiles = graph.workflows.reduce((a, w) => a + w.files.length, 0) || 1;
@@ -47,28 +48,42 @@ export function explainScore(graph) {
 
     const signals = Object.entries(c.signals).map(([signal, s]) => {
       if (s.unavailable || s.value === null) {
-        return { signal, value: null, weight: s.weight, unavailable: true, effectiveWeight: 0, contribution: 0, cost: 0 };
+        return { signal, value: null, weight: s.weight, unavailable: true, reason: s.reason ?? null, effectiveWeight: 0, contribution: 0, cost: 0 };
       }
       const eff = s.weight / availWeight;
       return {
         signal, value: s.value, weight: s.weight,
+        rawContribution: s.value * eff, rawCost: (1 - s.value) * eff, // unrounded, for exact repo sums
         effectiveWeight: r3(eff),
         contribution: r3(s.value * eff),
         cost: r3((1 - s.value) * eff),
       };
     });
-    return { id: w.id, score: c.score, signalCoverage: c.signalCoverage, files: w.files.length, fileShare, signals };
+    return { id: w.id, score: c.score, signalCoverage: c.signalCoverage, files: w.files.length, fileShare, rawShare: w.files.length / totalFiles, signals };
   });
 
+  const wfPart = 1 - REPO_COVERAGE_WEIGHT;
   const repoSignals = {};
   for (const w of workflows) {
     for (const s of w.signals) {
       const acc = (repoSignals[s.signal] ??= { signal: s.signal, weight: s.weight, contribution: 0, cost: 0, availableShare: 0, unavailableIn: 0 });
       if (s.unavailable) { acc.unavailableIn++; continue; }
-      acc.contribution += s.contribution * w.fileShare;
-      acc.cost += s.cost * w.fileShare;
+      // accumulate UNROUNDED values: rounding 40 shares × 4 signals first drifted the sum ~0.006 off repoConfidence
+      acc.contribution += s.rawContribution * w.rawShare * wfPart;
+      acc.cost += s.rawCost * w.rawShare * wfPart;
       acc.availableShare += w.fileShare;
     }
+  }
+  const cov = graph.repoSignals?.coverageOfRepo;
+  if (cov) {
+    repoSignals.coverageOfRepo = {
+      signal: "coverageOfRepo", weight: cov.weight, repoLevel: true,
+      contribution: cov.value * cov.weight, cost: (1 - cov.value) * cov.weight, availableShare: 1, unavailableIn: 0,
+    };
+  }
+  for (const w of workflows) {
+    delete w.rawShare;
+    for (const s of w.signals) { delete s.rawContribution; delete s.rawCost; }
   }
   for (const acc of Object.values(repoSignals)) {
     acc.contribution = r3(acc.contribution);
@@ -98,8 +113,7 @@ function simScores(rootDir, graph, sim) {
     files: wf.files,
     confidence: scoreWorkflow(rootDir, graph, wf, sim),
   }));
-  const total = workflows.reduce((a, w) => a + w.files.length, 0) || 1;
-  const repoConfidence = Number(workflows.reduce((a, w) => a + w.confidence.score * (w.files.length / total), 0).toFixed(3));
+  const { repoConfidence } = aggregateRepo(graph, workflows, sim);
   return { repoConfidence, workflows };
 }
 
@@ -125,8 +139,8 @@ export function ceilingScore(rootDir, graph) {
   };
   const ceiling = simScores(rootDir, graph, sim);
 
-  const noGit = graph.workflows.some((w) =>
-    Object.values(w.confidence.signals).some((s) => s.unavailable));
+  const noGit = graph.workflows.some((w) => w.confidence.signals.stability?.reason === "no-git");
+  const noCalls = graph.workflows.filter((w) => w.confidence.signals.resolutionRate?.reason === "no-calls");
 
   const caps = [];
   if (heuristicWfFiles.length) {
@@ -141,6 +155,14 @@ export function ceilingScore(rootDir, graph) {
       cap: "no-git-stability",
       structural: true,
       detail: "No git history → the stability signal stays unavailable; even at the ceiling, signalCoverage is below 1.0 (the score is honest, but backed by less evidence).",
+    });
+  }
+
+  if (noCalls.length) {
+    caps.push({
+      cap: "no-calls",
+      structural: true,
+      detail: `${noCalls.length} workflow(s) make no statically-resolvable calls, so resolutionRate has no evidence there and stays unavailable — honest, not fixable by resolving anything.`,
     });
   }
 
@@ -245,7 +267,7 @@ export function renderExplain(data, { workflow } = {}) {
   lines.push("");
   lines.push(bold("  Repo-wide — what each signal contributes / costs"));
   for (const s of data.repoSignals) {
-    const tail = s.unavailableIn ? dim(`  (unavailable in ${s.unavailableIn} workflow(s))`) : "";
+    const tail = s.repoLevel ? dim("  (repo-level)") : s.unavailableIn ? dim(`  (unavailable in ${s.unavailableIn} workflow(s))`) : "";
     lines.push(`    ${cyan(s.signal.padEnd(16))} contributes ${green(s.contribution.toFixed(3))}  costs ${s.cost > 0 ? yellow(s.cost.toFixed(3)) : dim("0.000")}${tail}`);
     lines.push(dim(`        ${SIGNAL_BLURB[s.signal] ?? ""}`));
   }
@@ -254,7 +276,7 @@ export function renderExplain(data, { workflow } = {}) {
     lines.push("");
     lines.push(`  ${confidenceColor(w.score)(`[${w.score}]`)} ${bold(w.id)}  ${dim(`${w.files} files · share ${w.fileShare} · signalCoverage ${w.signalCoverage}`)}`);
     for (const s of w.signals) {
-      if (s.unavailable) { lines.push(`      ${dim(s.signal.padEnd(16))} ${dim("unavailable — weight redistributed")}`); continue; }
+      if (s.unavailable) { lines.push(`      ${dim(s.signal.padEnd(16))} ${dim(`unavailable${s.reason ? ` (${s.reason})` : ""} — weight redistributed`)}`); continue; }
       lines.push(`      ${s.signal.padEnd(16)} value ${s.value.toFixed(3)}  →  contributes ${s.contribution.toFixed(3)}  ${s.cost > 0 ? yellow(`(costs ${s.cost.toFixed(3)})`) : dim("(maxed)")}`);
     }
   }

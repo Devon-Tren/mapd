@@ -199,3 +199,29 @@ test("chat Q&A: package.json is valid project metadata, not a fabricated file wa
     server.close();
   }
 });
+
+test("chat Q&A: one huge stale finding cannot crowd the project map out of the provider's context", async () => {
+  const dir = tmpProject();
+  // mirrors a real report: a parse-failure listing thousands of files from a since-deleted nested project
+  const ghost = Array.from({ length: 5000 }, (_, i) => `old-app/node_modules/pkg${i}/index.d.cts`);
+  const huge = { kind: "parse-failure", severity: "high", detail: `File(s) newly failing to parse: ${ghost.join(", ")}`, files: ghost, status: "awaiting-approval" };
+  fs.mkdirSync(path.join(dir, ".mapd"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".mapd", "findings.json"), JSON.stringify({ generatedAt: new Date().toISOString(), findings: [huge] }));
+
+  const server = await startEchoStubProvider();
+  const { port } = server.address();
+  try {
+    const { code, stdout } = await runChat(
+      dir,
+      ["How does greet relate to farewell in this code?", "mapd chat end"],
+      { OPENAI_API_KEY: "sk-test-not-real", OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1` },
+    );
+    assert.equal(code, 0);
+    assert.match(stdout, /Task-focused retrieval context/, "the question-specific map context must survive");
+    assert.match(stdout, /Workflows:/);
+    assert.match(stdout, /"filesNoLongerInProject":5000/, "stale file references are counted, not dumped");
+    assert.ok(stdout.length < 60_000, `context stayed bounded (got ${stdout.length} chars)`);
+  } finally {
+    server.close();
+  }
+});

@@ -23,7 +23,7 @@ import { classifyIntent } from "./intent.js";
 import { classifyIntentWithProvider } from "./llmIntent.js";
 import { runCommand, killActiveChildren } from "./commandRunner.js";
 import { classifyCommand, isPermitted } from "../core/policy.js";
-import { verifyGrounding, buildGroundingFileList } from "../core/grounding.js";
+import { verifyGrounding, buildGroundingFileList, describeGrounding } from "../core/grounding.js";
 import { getProvider } from "../agents/provider.js";
 import { startWatcher } from "../core/watch.js";
 import { bold, dim, green, yellow, red, cyan, confidenceColor } from "../core/theme.js";
@@ -44,18 +44,28 @@ function compactPackageContext(abs) {
   };
 }
 
-function queueContext(abs, item) {
+const clip = (str, n) => (str && str.length > n ? `${str.slice(0, n)}…` : str);
+
+// Bounded per finding: one finding listing thousands of files (e.g. a stale
+// parse-failure from a since-deleted nested project) used to fill the whole
+// context budget and push the actual project map out of the prompt.
+function queueContext(abs, item, liveFiles) {
   const loaded = loadFinding(abs, item.id);
   const finding = loaded?.finding;
+  const files = finding?.files ?? finding?.evidence?.files ?? [];
+  const live = liveFiles ? files.filter((f) => liveFiles.has(f)) : files;
+  const evidence = finding?.evidence ? clip(JSON.stringify(finding.evidence), 600) : null;
   return {
     id: item.id,
     source: item.source,
     kind: item.kind,
     severity: item.severity,
     priority: item.priority,
-    detail: item.detail,
-    files: finding?.files ?? finding?.evidence?.files ?? [],
-    evidence: finding?.evidence ?? null,
+    detail: clip(item.detail, 400),
+    files: live.slice(0, 10),
+    ...(live.length > 10 ? { moreFiles: live.length - 10 } : {}),
+    ...(files.length > live.length ? { filesNoLongerInProject: files.length - live.length } : {}),
+    evidence,
   };
 }
 
@@ -96,13 +106,14 @@ async function answerProjectQuestion(text, ctx) {
     { text: `Project summary (deterministic, AST-derived): ${JSON.stringify(getRepoStatusSummary(graph))}`, priority: 10 },
   ];
 
+  const liveFiles = new Set(graph.files.map((f) => f.file));
   const openItems = pending(loadQueue(ctx.abs));
   if (openItems.length) {
     items.push({
       text: `Open findings awaiting approval (${openItems.length}): ${JSON.stringify(
-        openItems.slice(0, 20).map((i) => queueContext(ctx.abs, i)),
+        openItems.slice(0, 20).map((i) => queueContext(ctx.abs, i, liveFiles)),
       )}`,
-      priority: 9,
+      priority: 8.8,
     });
   }
 
@@ -121,7 +132,8 @@ async function answerProjectQuestion(text, ctx) {
 
   items.push({ text: `Workflows: ${JSON.stringify(getWorkflowSummaries(graph))}`, priority: 8 });
   if (taskContext.hits.length) {
-    items.push({ text: `Task-focused retrieval context: ${JSON.stringify(taskContext)}`, priority: 8.5 });
+    // question-specific, so it outranks the generic findings queue
+    items.push({ text: `Task-focused retrieval context: ${JSON.stringify(taskContext)}`, priority: 9.5 });
   }
 
   if (ctx.session.turns.length > 1) {
@@ -175,12 +187,22 @@ async function answerProjectQuestion(text, ctx) {
     files: buildGroundingFileList(ctx.abs, graph),
     workflowIds: graph.workflows.map((w) => w.id),
     findingIds: openItems.map((i) => i.id),
+    graph,
   });
-  if (!check.grounded) {
-    const named = check.violations.map((v) => `${v.type} "${v.value}"`).join(", ");
-    return `${answer}\n\n${yellow(`⚠ This answer mentions ${named} — not found in this project's real data. Treat that part with caution.`)}`;
-  }
-  return answer;
+  return withGroundingReport(answer, check, "answer");
+}
+
+/**
+ * Every LLM answer leaves with its verification attached: what was checked
+ * against the map and passed, and — right under the answer, never buried —
+ * any file/workflow/finding/symbol/relation claim the map does not support.
+ */
+function withGroundingReport(answer, check, noun) {
+  const { ok, bad } = describeGrounding(check);
+  const lines = [answer, ""];
+  if (bad.length) lines.push(yellow(`⚠ This ${noun} mentions ${bad.join(", ")} — not found in this project's real data. Treat that part with caution.`));
+  if (ok) lines.push(dim(`✓ checked against the map: ${ok}`));
+  return lines.length > 2 ? lines.join("\n") : answer;
 }
 
 /**
@@ -224,12 +246,9 @@ async function runSequenceAndSynthesize(text, commands, ctx) {
     files: buildGroundingFileList(ctx.abs, graph),
     workflowIds: graph.workflows.map((w) => w.id),
     findingIds: pending(loadQueue(ctx.abs)).map((i) => i.id),
+    graph,
   });
-  if (!check.grounded) {
-    const named = check.violations.map((v) => `${v.type} "${v.value}"`).join(", ");
-    return `${answer}\n\n${yellow(`⚠ This summary mentions ${named} — not found in this project's real data. Treat that part with caution.`)}`;
-  }
-  return answer;
+  return withGroundingReport(answer, check, "summary");
 }
 
 const CONFIRM_WORDS = new Set(["yes", "y", "confirm", "approve"]);

@@ -177,7 +177,7 @@ const NARRATE_SYSTEM_PROMPT =
  * of how plausible the prose reads. Fails safe to the unmodified layer-1
  * data on no provider, no response, malformed JSON, or a shape mismatch.
  */
-export async function narrateSolutions(data, provider) {
+export async function narrateSolutions(data, provider, { graph } = {}) {
   if (!provider?.available?.() || !data.solutions.length) return data;
 
   const payload = data.solutions.map((s) => ({
@@ -201,7 +201,7 @@ export async function narrateSolutions(data, provider) {
     const text = parsed[i]?.whyItMatters;
     if (typeof text !== "string" || !text.trim()) return s;
 
-    const check = verifyGrounding(text, { files: s.files, workflowIds: s.blastRadius.workflowsTouched });
+    const check = verifyGrounding(text, { files: s.files, workflowIds: s.blastRadius.workflowsTouched, graph });
     if (!check.grounded) {
       const v = check.violations[0];
       return { ...s, narrative: null, narrativeSkippedReason: `mentioned a ${v.type} ("${v.value}") not in this cluster's data` };

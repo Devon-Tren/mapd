@@ -55,3 +55,17 @@ test("resolveFile: unique suffix match, ambiguity, and not-found", () => {
   assert.equal(resolveFile(g, "leaf.js").file, "leaf.js");
   assert.ok(resolveFile(g, "does-not-exist.js").notFound);
 });
+
+test("chat task context carries each file's deterministic reachability, so the LLM cannot guess it", async () => {
+  const { buildTaskContext } = await import("../src/core/intelligence.js");
+  const dir = project();
+  fs.mkdirSync(path.join(dir, "plugins"));
+  fs.writeFileSync(path.join(dir, "plugins", "p.js"), `export default function(){ return 3; }\n`);
+  fs.writeFileSync(path.join(dir, "entry.js"), `import { mid } from "./mid.js";\nconst n = process.argv[2];\nexport function run(){ return mid(); }\nexport const load = () => import(\`./plugins/\${n}.js\`);\nrun();\n`);
+  const g = buildScoredGraph(dir);
+  const ctx = buildTaskContext(g, "plugins p island leaf", { maxHits: 20 });
+  const r = Object.fromEntries(ctx.files.map((f) => [f.file, f.reachability]));
+  assert.equal(r["plugins/p.js"].classification, "dynamicallyLoaded");
+  assert.equal(r["island.js"].classification, "trulyOrphaned");
+  assert.equal(r["leaf.js"].inWorkflow, true);
+});

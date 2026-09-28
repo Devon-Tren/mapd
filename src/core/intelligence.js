@@ -7,9 +7,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { parseProject } from "./parser.js";
+import { parseProject, ALWAYS_IGNORE } from "./parser.js";
 import { buildGraph, loadPkg } from "./graph.js";
 import { scoreGraph } from "./confidence.js";
+import { traceFile } from "./trace.js";
 import { loadConfig } from "../config/index.js";
 import { loadPersistentParseCache, savePersistentParseCache } from "./parseCache.js";
 
@@ -24,7 +25,7 @@ export function buildScoredGraph(rootDir, { cache } = {}) {
     // Normal Map'd surfaces are governed by .mapdrc project.include/exclude.
     // The low-level parser still keeps its historical defaults for direct
     // callers/tests that do not go through buildScoredGraph.
-    ignore: new Set(),
+    ignore: ALWAYS_IGNORE,
     include: config.project?.include ?? [],
     exclude: config.project?.exclude ?? [],
     maxFileSizeBytes: config.mapping?.maxFileSizeBytes ?? Infinity,
@@ -142,6 +143,10 @@ export function buildTaskContext(graph, query, { maxHits = 8, maxFiles = 8 } = {
     return {
       file: rel,
       parsed: node?.parsed ?? false,
+      parseErrors: node?.parseErrors ?? 0,
+      // deterministic reachability, same source as /trace — so an LLM answering
+      // "is this used / reachable?" reads the engine's verdict instead of guessing
+      reachability: reachabilityOf(graph, rel),
       loc: node?.loc ?? 0,
       exports: node?.exports ?? [],
       imports: (node?.imports ?? []).map((i) => ({ source: i.source, names: i.names ?? [] })),
@@ -169,6 +174,12 @@ export function buildTaskContext(graph, query, { maxHits = 8, maxFiles = 8 } = {
     workflows,
     caveats,
   };
+}
+
+function reachabilityOf(graph, rel) {
+  const t = traceFile(graph, rel);
+  if (t.inWorkflow) return { inWorkflow: true, workflows: t.workflows, importedBy: t.importers };
+  return { inWorkflow: false, classification: t.classification, reason: t.reason, importedBy: t.importers };
 }
 
 export function getWorkflowSummaries(graph) {

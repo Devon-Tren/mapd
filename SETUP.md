@@ -47,8 +47,9 @@ Every command runs fully without a key — deterministic mode. With a key you ge
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...        # PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
-export MAPD_MODEL=claude-sonnet-4-6        # optional; verify current model names at
-                                           # https://docs.claude.com/en/api/overview
+# Model: by default Map'd uses the newest Claude Sonnet, looked up from Anthropic's
+# Models API once a day (cached in ~/.mapd/model-cache.json; claude-sonnet-5 if offline).
+export MAPD_MODEL=claude-sonnet-5          # optional: pin a specific model instead
 ```
 
 Get a key at https://console.anthropic.com. Architectural note you can verify in `src/agents/llm.js`: agents narrate and propose; they cannot write files, mutate the map, or emit confidence numbers. Removing the key changes nothing about correctness, only prose.

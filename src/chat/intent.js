@@ -47,6 +47,9 @@ const RULES = [
 
   { re: /^trace (\S+)(?: to (\S+))?/i, action: (m) => ({ type: "slash", command: "/trace", args: [m[1], m[2]].filter(Boolean) }) },
   { re: /why (?:is|isn.?t) (\S+) (?:in|part of|out of) (?:the |a )?workflow/i, action: (m) => ({ type: "slash", command: "/trace", args: [m[1]] }) },
+  // file-shaped subject (has a "." or "/") + a reachability question → deterministic /trace, not LLM guesswork
+  { re: /^(?:why|how) (?:is|isn.?t) (\S*[./]\S*) (?:reachable|unreachable|used|unused|dead|an orphan|orphaned|loaded|imported|included|excluded)\b/i, action: (m) => ({ type: "slash", command: "/trace", args: [m[1]] }) },
+  { re: /^(?:is|are) (\S*[./]\S*) (?:reachable|unreachable|used|unused|dead(?: code)?|an orphan|orphaned|imported|loaded)\b/i, action: (m) => ({ type: "slash", command: "/trace", args: [m[1]] }) },
   { re: /(?:show|what.?s) the (?:import|call) chain (?:from|between) (\S+) (?:to|and) (\S+)/i, action: (m) => ({ type: "slash", command: "/trace", args: [m[1], m[2]] }) },
   { re: /(?:what.?s|which calls are) dragging down (?:the )?(?:call )?resolution( rate)?|(?:show|list) unresolved calls/i, action: () => ({ type: "slash", command: "/resolution" }) },
   { re: /^(?:find|look for|where is|where.?s) (?:code (?:related to|about) )?(.+)/i, action: (m) => ({ type: "slash", command: "/find", args: m[1].trim().split(/\s+/) }) },

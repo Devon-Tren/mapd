@@ -38,13 +38,16 @@ detection and coverage gaps are fully deterministic. A provider key only unlocks
 
 **Confidence is derived, not asserted.** Every score is a weighted composite of measurable signals, stored alongside the number so it is auditable:
 
+Each workflow is scored on its own evidence:
+
 | Signal | Meaning | Weight |
 |---|---|---|
-| parseIntegrity | fraction of workflow files parsed with zero recovery errors | 0.30 |
-| resolutionRate | call-edge resolution rate across the graph | 0.25 |
-| testPresence | fraction of workflow files with a matching test file | 0.25 |
+| parseIntegrity | fraction of the workflow's files parsed with zero recovery errors | 0.30 |
+| resolutionRate | fraction of the calls made inside the workflow's files that resolve to a definition (unavailable if it makes none) | 0.25 |
+| testPresence | fraction of the workflow's files with a real test (imports the module and/or uses its exports — a filename match earns nothing) | 0.25 |
 | stability | inverse 90-day git churn (unavailable without git — honestly redistributed, not guessed) | 0.10 |
-| coverageOfRepo | fraction of repo files reachable from any entry point | 0.10 |
+
+Repo confidence = 0.9 × the size-weighted mean of workflow scores + 0.1 × **coverageOfRepo** (fraction of repo files reachable from any entry point). Coverage is a property of the repo, so it is applied once there rather than copied into every workflow. `mapd chat "/score explain"` breaks the number down; the contributions sum back to it.
 
 If a signal is unavailable, its weight is redistributed and the score's `signalCoverage` drops — an honest "we know less," not a hallucinated 0.7.
 

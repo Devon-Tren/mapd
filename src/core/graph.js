@@ -23,7 +23,7 @@ export const isTestFile = (f) => /(\.test\.|\.spec\.|__tests__\/|(^|\/)tests?\/)
 
 const ROUTE_METHODS = new Set(["get", "post", "put", "delete", "patch", "use", "all"]);
 const ROUTE_RECEIVERS = new Set(["app", "router", "server", "api", "fastify", "express"]);
-const GLOBALS = new Set([
+export const GLOBALS = new Set([
   "console", "JSON", "Math", "Object", "Array", "Promise", "Number", "String", "Date",
   "process", "Buffer", "Set", "Map", "RegExp", "Error", "Symbol", "Boolean", "URL",
   "fetch", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "parseInt",

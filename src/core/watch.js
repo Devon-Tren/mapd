@@ -7,7 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { parseProject } from "./parser.js";
+import { parseProject, ALWAYS_IGNORE } from "./parser.js";
 import { buildGraph, loadPkg } from "./graph.js";
 import { scoreGraph } from "./confidence.js";
 import { diffGraphs } from "./regression.js";
@@ -27,7 +27,7 @@ export function startWatcher(rootDir, { intervalMs = 400, bus = createWatchBus()
   const build = () => {
     const parsed = parseProject(abs, {
       cache,
-      ignore: new Set(),
+      ignore: ALWAYS_IGNORE,
       include: config.project?.include ?? [],
       exclude: config.project?.exclude ?? [],
       maxFileSizeBytes: config.mapping?.maxFileSizeBytes ?? Infinity,

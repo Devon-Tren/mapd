@@ -91,6 +91,12 @@ test("classifyIntent: trace phrasings route to /trace with file(s) as args", () 
   assert.deepEqual(classifyIntent("trace src/a.js to src/b.js"), { type: "slash", command: "/trace", args: ["src/a.js", "src/b.js"] });
   assert.deepEqual(classifyIntent("why is src/helper.js in the workflow"), { type: "slash", command: "/trace", args: ["src/helper.js"] });
   assert.deepEqual(classifyIntent("show the import chain from src/a.js to src/b.js"), { type: "slash", command: "/trace", args: ["src/a.js", "src/b.js"] });
+  // reachability questions about a file go to the deterministic engine, not the LLM
+  assert.deepEqual(classifyIntent("why is src/plugins/a.js reachable"), { type: "slash", command: "/trace", args: ["src/plugins/a.js"] });
+  assert.deepEqual(classifyIntent("is src/lib/dead.js dead code?"), { type: "slash", command: "/trace", args: ["src/lib/dead.js"] });
+  assert.deepEqual(classifyIntent("why isn't lib/x.ts used"), { type: "slash", command: "/trace", args: ["lib/x.ts"] });
+  // no file-shaped subject → not hijacked
+  assert.equal(classifyIntent("is the cache used anywhere").command, undefined);
 });
 
 test("classifyIntent: resolution-rate phrasings route to /resolution", () => {

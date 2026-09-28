@@ -15,16 +15,20 @@
  *   fixProposer  — given a finding + relevant file source, drafts a patch
  *                  proposal (unified-diff style) for human approval
  *
- * Model is configurable via MAPD_MODEL; verify current model names at
- * https://docs.claude.com/en/api/overview before changing the default.
+ * Model: the newest Claude Sonnet, looked up via the Models API (see
+ * modelResolver.js); pin one with MAPD_MODEL or .mapdrc providers.anthropic.model.
  */
 
 import { createAnthropicClientLoader } from "./anthropicClient.js";
 import { getProvider } from "./provider.js";
-
-const DEFAULT_MODEL = process.env.MAPD_MODEL ?? "claude-sonnet-4-6";
+import { resolveAnthropicModel } from "./modelResolver.js";
 
 const client = createAnthropicClientLoader();
+let resolvedModel = null;
+// The model that actually produced the last completion — recorded on proposals
+// as `generatedBy`, so attribution is what ran (Kimi, OpenAI, or the resolved
+// Sonnet), never a hardcoded default.
+let lastModelUsed = null;
 
 /**
  * `provider`, when passed, is a provider.js instance (getProvider(config))
@@ -34,15 +38,21 @@ const client = createAnthropicClientLoader();
  * cli.js) need no changes.
  */
 async function complete(system, user, maxTokens = 1500, provider = null) {
-  if (provider) return provider.complete(system, user, maxTokens);
+  if (provider) {
+    const out = await provider.complete(system, user, maxTokens);
+    lastModelUsed = provider.lastModelUsed ?? (provider.model ? `${provider.name}:${provider.model}` : provider.name);
+    return out;
+  }
   const c = await client();
   if (!c) return null;
+  resolvedModel ??= (await resolveAnthropicModel(c)).model;
   const msg = await c.messages.create({
-    model: DEFAULT_MODEL,
+    model: resolvedModel,
     max_tokens: maxTokens,
     system,
     messages: [{ role: "user", content: user }],
   });
+  lastModelUsed = msg.model ?? resolvedModel;
   return msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
 }
 
@@ -113,7 +123,7 @@ export async function proposeFix(finding, relevantSources, retryFeedback = null,
       verification_plan: parsed.verification_plan ?? [],
       finding: finding.kind,
       status: "awaiting-approval",   // architecture rule: proposals never self-apply
-      generatedBy: DEFAULT_MODEL,
+      generatedBy: lastModelUsed,
     };
   } catch {
     return {
@@ -179,7 +189,7 @@ export async function migrationPlan(finding, graphStats, { provider } = {}) {
   const raw = await complete(system, JSON.stringify({ finding, graphStats }), 2500, provider);
   if (!raw) return null;
   try {
-    return { ...JSON.parse(raw.replace(/```json|```/g, "").trim()), status: "awaiting-approval", generatedBy: DEFAULT_MODEL };
+    return { ...JSON.parse(raw.replace(/```json|```/g, "").trim()), status: "awaiting-approval", generatedBy: lastModelUsed };
   } catch {
     return { rationale: raw, plan: [], status: "awaiting-approval", parseFailed: true };
   }

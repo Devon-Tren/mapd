@@ -16,7 +16,7 @@ import path from "node:path";
 const MAPD_DIR = ".mapd";
 
 /** Bump when the graph shape changes in a way that invalidates old baselines. */
-export const BASELINE_SCHEMA = 3; // 3 = honest testPresence (real/shallow test credit, not basename match) — scores shift, old baselines aren't comparable
+export const BASELINE_SCHEMA = 4; // 3 = honest testPresence; 4 = per-workflow resolutionRate + repo-level coverageOfRepo — scores shift, old baselines aren't comparable
 
 export function baselinePath(rootDir) {
   return path.join(rootDir, MAPD_DIR, "baseline.json");
@@ -53,7 +53,7 @@ export function diffGraphs(baseline, current) {
   for (const [id, w] of baseWf) {
     if (!curWf.has(id)) add("high", "workflow-removed",
       `Workflow ${id} (entry: ${w.entry.file}) no longer exists.`,
-      { baselineFiles: w.files.length });
+      { baselineFiles: w.files.length, workflow: id });
   }
   for (const [id, w] of curWf) {
     if (!baseWf.has(id)) add("info", "workflow-added",
@@ -76,7 +76,7 @@ export function diffGraphs(baseline, current) {
         .map(([k, s]) => ({ signal: k, from: bw.confidence.signals[k].value, to: s.value }));
       add(drop >= 0.25 ? "high" : "medium", "confidence-regression",
         `Workflow ${id} confidence dropped ${bw.confidence.score} → ${cw.confidence.score}.`,
-        { degradedSignals: degraded });
+        { degradedSignals: degraded, workflow: id });
     }
   }
 
@@ -85,9 +85,15 @@ export function diffGraphs(baseline, current) {
     const bw = baseWf.get(id);
     if (!bw) continue;
     const removed = bw.exportedSurface.filter((e) => !cw.exportedSurface.includes(e));
-    if (removed.length) add("high", "export-removed",
+    if (!removed.length) continue;
+    // name the file(s) that exported them at baseline, so evidence/impact can point at real code
+    const gone = new Set(removed);
+    const definers = baseline.files
+      .filter((f) => bw.files.includes(f.file) && (f.exports ?? []).some((e) => gone.has(e)))
+      .map((f) => f.file);
+    add("high", "export-removed",
       `Workflow ${id} removed exported symbols: ${removed.join(", ")}.`,
-      { removed });
+      { removed, workflow: id, files: definers });
   }
 
   // 4. Call-resolution degradation (new dangling call edges)

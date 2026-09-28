@@ -1,90 +1,47 @@
 # Publishing mapd to npm
 
-Everything is staged. The only thing standing between here and a published
-package is npm's account state — the code, the tests and the tarball are done.
+## How releases work
 
----
-
-## Where it stands
-
-| | |
-|---|---|
-| Package | `@dev-tren/mapd@0.20.0` |
-| Repo | `Devon-Tren/mapd`, `main`, pushed, clean |
-| Tests | **499/499** |
-| Tarball | 197 kB, 67 files, audited — no keys, no personal paths, no billing data |
-| npm account | `dev-tren` |
-| **Blocked until** | **2026-09-26 15:21 UTC** |
-
-## Why it is blocked
-
-npm **auto-suspends an account for 72 hours when a recovery code is used to
-log in.** That is a security policy, not a punishment, and nothing is wrong
-with the account. It went read-only at 2026-09-23 15:21 UTC: browsing and
-installing still work, publishing does not.
-
-The suspension was self-inflicted while working around a deeper problem — see
-"the 2FA trap" below.
-
-## Do these now (they still work while suspended)
-
-1. **Regenerate recovery codes** — https://www.npmjs.com/settings/~/recovery-codes
-   One code was pasted into a chat transcript on 2026-09-23 and must be
-   treated as exposed. Regenerating invalidates the whole old set.
-2. **Audit 2FA devices** — https://www.npmjs.com/settings/~/tfa/list
-   Expect exactly one entry, `npm_security_key`. Remove anything unfamiliar.
-3. **Rotate the password** — https://www.npmjs.com/settings/~/password
-   Optional; nothing indicates anyone else touched the account.
-
----
-
-## The 2FA trap, and why it must be solved before publishing
-
-Three ways to satisfy npm's publish 2FA. On this account, all three fail:
-
-| Method | Status |
-|---|---|
-| **TOTP** (6-digit authenticator app) | npm does not offer enrollment on this account — no QR code is shown |
-| **WebAuthn security key** | Works for website login. **npm's CLI publish does not accept it** — it returns `EOTP` asking for a code the key cannot produce |
-| **Recovery code** | Works, **and triggers the 72-hour suspension**. Single-use. Not a repeatable path |
-| Granular token w/ 2FA bypass | Works today, but npm is restricting these: account changes Aug 2026, direct publishing **Jan 2027** |
-
-So there is no sustainable manual path. Do not plan to publish `0.20.1` the
-same way.
-
-## The fix: trusted publishing via GitHub Actions
-
-npm supports OIDC trusted publishing — GitHub Actions authenticates directly,
-with **no token, no OTP, no 2FA prompt**, and npm marks the release as
-provenance-verified. It is where npm is pushing everyone, and it sidesteps all
-four rows of the table above.
-
-Rough shape (set up before 2026-09-26 so the unblock is a one-liner):
-
-1. On npmjs.com, add a **trusted publisher** for `@dev-tren/mapd`:
-   repository `Devon-Tren/mapd`, workflow `.github/workflows/publish.yml`.
-2. Add that workflow, triggered on a version tag, with
-   `permissions: { id-token: write, contents: read }`, `npm ci`, `npm test`,
-   `npm publish`.
-3. Publish by tagging: `git tag v0.20.0 && git push --tags`.
-
-Then releases never touch a recovery code again.
-
-## If you just want it out on Friday
-
-Once the suspension lifts (2026-09-26 15:21 UTC):
+Releases are published by GitHub Actions (`.github/workflows/publish.yml`) using
+npm **trusted publishing**: GitHub authenticates to npm over OIDC, so there is
+no token, no OTP and no 2FA prompt, and npm attaches a provenance attestation.
 
 ```bash
-cd /Users/devontrenoskie/Downloads/mapd-v0
-npm publish --otp=<a FRESH recovery code>
+npm version 0.21.1 --no-git-tag-version   # bump package.json + lockfile
+git commit -am "0.21.1" && git push
+git tag v0.21.1 && git push origin v0.21.1   # this publishes
 ```
 
-`--access=public` is already in `package.json`, so no flag is needed. **This
-will suspend the account again for another 72 hours.** Acceptable once, if the
-goal is simply to ship this weekend — but set up trusted publishing before the
-next release.
+The workflow refuses to publish if the tag does not match `package.json`, and
+runs the full test suite first.
 
----
+## One-time setup
+
+1. **First publish (manual, once).** The trusted-publisher setting lives on the
+   package's page, so the package has to exist first. Use npm 11+, whose 2FA
+   step opens the browser and accepts the security key (npm 10's `EOTP` prompt
+   is what caused the recovery-code trap):
+   ```bash
+   npx npm@latest login
+   npx npm@latest publish
+   ```
+   Do **not** use a recovery code for this — using one suspends publishing
+   for 72 hours.
+2. **Attach the trusted publisher.** npmjs.com → `@dev-tren/mapd` → Settings →
+   Trusted publishing → GitHub Actions: owner `Devon-Tren`, repository `mapd`,
+   workflow `publish.yml`.
+3. **Optional hardening:** in the same settings page, set publishing access to
+   "Require two-factor authentication and disallow tokens" — trusted
+   publishing keeps working.
+
+## Background: the 2FA trap (2026-09)
+
+With npm 10 the CLI only accepted a 6-digit OTP. This account has no TOTP
+app (npm does not offer enrollment) and a WebAuthn key cannot produce an OTP,
+so the only CLI path was a recovery code — which triggers npm's 72-hour
+publishing suspension. Browser-based auth (npm 11+) and trusted publishing
+both avoid it. Recovery codes pasted anywhere should be regenerated at
+https://www.npmjs.com/settings/~/recovery-codes.
 
 ## Why the name is scoped
 

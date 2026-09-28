@@ -31,7 +31,7 @@ export function buildAssist(abs) {
     steps.push({ cmd: "mapd check --save-baseline", why: `Baseline schema v${baseline.schemaMismatch.found} predates this Map'd (v${baseline.schemaMismatch.expected}) — re-snapshot.` });
   }
   if (highSeverity.length) {
-    steps.push({ cmd: "mapd fix", why: `${highSeverity.length} high-severity finding(s) open — auto-selects and proposes a gate-verified fix for the strongest one.` });
+    steps.push({ cmd: "mapd fix --propose", why: `${highSeverity.length} high-severity finding(s) open — auto-selects and proposes a gate-verified fix for the strongest one.` });
   } else if (open.length) {
     steps.push({ cmd: "mapd fix review", why: `${open.length} item(s) awaiting approval.` });
   }

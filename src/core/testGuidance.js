@@ -34,6 +34,22 @@ function resolveImport(importer, source) {
   return stripExt(path.posix.normalize(path.posix.join(path.posix.dirname(importer), source)));
 }
 
+const normName = (s) => s.toLowerCase().replace(/[-_]/g, "");
+const GENERIC_TEST_TOKENS = new Set(["test", "tests", "spec", "specs", "__tests__", "e2e", "unit", "integration"]);
+
+/** Name tokens a test file answers to: its path segments/words plus its whole stem (logger-redaction → logger, redaction, loggerredaction). */
+function testNameTokens(testFile) {
+  const stem = stripExt(testFile);
+  const tokens = new Set();
+  for (const seg of stem.split("/")) {
+    const words = seg.split(".").filter((w) => !GENERIC_TEST_TOKENS.has(w.toLowerCase()));
+    if (!words.length) continue;
+    tokens.add(normName(words.join("")));
+    for (const w of words.join("-").split(/[-_]/)) if (w && !GENERIC_TEST_TOKENS.has(w.toLowerCase())) tokens.add(normName(w));
+  }
+  return tokens;
+}
+
 const QUALITY_RANK = { real: 3, shallow: 2, nameonly: 1 };
 
 function suggestTestName(file, hasTopTestsDir) {
@@ -68,7 +84,7 @@ export function classifyTestCredit(graph) {
       if (r) targets.add(r);
       for (const n of imp.names ?? []) names.add(n);
     }
-    return { file: t.file, targets, names };
+    return { file: t.file, targets, names, nameTokens: testNameTokens(t.file) };
   });
 
   return srcFiles.map((s) => {
@@ -81,7 +97,10 @@ export function classifyTestCredit(graph) {
     // tests/setup.test.ts imports redactSecrets from src/logger.ts, exercises
     // it properly, and was reported as untested purely because the test is not
     // called "logger". An import is stronger evidence than a filename.
-    const nameMatched = testMeta.filter((t) => t.file.includes(key) || t.targets.has(sNoExt));
+    // Name matching is whole-token, not substring: a raw `includes` let src/a.js
+    // "match" tests/format.test.js and src/test.js match every test file.
+    const nameKey = normName(key);
+    const nameMatched = testMeta.filter((t) => t.nameTokens.has(nameKey) || t.targets.has(sNoExt));
 
     const credits = nameMatched.map((t) => {
       const pathLinked = t.targets.has(sNoExt);

@@ -11,6 +11,7 @@ import { loadConfig, validateConfig } from "../config/index.js";
 import { loadBaseline } from "./regression.js";
 import { loadPkg, detectPackageManager } from "./graph.js";
 import { getProvider } from "../agents/provider.js";
+import { describeModelChoice } from "../agents/modelResolver.js";
 import { checkEnvFiles } from "./envFiles.js";
 import { checkReportFreshness } from "./staleness.js";
 
@@ -80,7 +81,9 @@ export function runDoctor(rootDir) {
   add("config-valid", configOk, configOk ? "resolved configuration is valid" : errors.join("; "));
 
   const provider = getProvider(config);
-  add("provider-configured", true, provider.available() ? `${provider.name} provider available` : "none configured — deterministic mode only");
+  add("provider-configured", true, provider.available()
+    ? `${provider.name} provider available${provider.name === "anthropic" ? ` — model: ${describeModelChoice(config)}` : provider.model ? ` — model: ${provider.model}` : ""}`
+    : "none configured — deterministic mode only");
 
   const { project: projectEnv, user: userEnv } = checkEnvFiles(abs);
   const envParts = [];

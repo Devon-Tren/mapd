@@ -85,3 +85,16 @@ test("a duplicate-functions finding never points into a generated bundle, even i
   assert.ok(dupFinding, "the real index.js/other.js duplication must still be reported");
   assert.ok(!dupFinding.files.includes("out-bundle.cjs"), "the generated bundle must never be listed as one of the duplicate's files");
 });
+
+test("installed dependencies are never mapped, even in a nested project's node_modules the root-anchored excludes miss", async () => {
+  const { buildScoredGraph } = await import("../src/core/intelligence.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mapd-nested-nm-"));
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "n", main: "index.js" }));
+  fs.writeFileSync(path.join(dir, "index.js"), "export const x = 1;\n");
+  fs.mkdirSync(path.join(dir, "apps", "web", "node_modules", "dep"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "apps", "web", "app.js"), "export const y = 1;\n");
+  fs.writeFileSync(path.join(dir, "apps", "web", "node_modules", "dep", "index.js"), "module.exports = 1;\n");
+  const files = buildScoredGraph(dir).files.map((f) => f.file);
+  assert.ok(files.includes("apps/web/app.js"), "nested app source is still mapped");
+  assert.ok(!files.some((f) => f.includes("node_modules")), `no dependency files mapped: ${files}`);
+});

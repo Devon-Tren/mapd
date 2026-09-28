@@ -99,3 +99,42 @@ test("buildGroundingFileList: includes real metadata files Map'd consumes, not o
   assert.ok(files.includes("package.json"));
   assert.ok(files.includes("README.md"));
 });
+
+// ── relation + symbol claims, checked against the parsed graph ───────────────
+const miniGraph = {
+  files: [
+    { file: "electron/main.cjs", functions: [{ name: "boot", calls: ["require", "PlanModeOrchestrator"] }], imports: [{ source: "./plan-mode-bundle.cjs", names: ["PlanModeOrchestrator"] }], exports: [] },
+    { file: "electron/plan-mode-bundle.cjs", functions: [{ name: "runPipeline", calls: [] }, { name: "PlanModeOrchestrator.prototype.run", calls: ["runPipeline"] }], imports: [], exports: ["runPipeline", "PlanModeOrchestrator"] },
+  ],
+};
+const files = miniGraph.files.map((f) => f.file);
+
+test("a false 'X calls Y' claim is caught against the real call graph; a true import claim verifies", () => {
+  const r = verifyGrounding("`electron/main.cjs` calls `runPipeline` at startup. main.cjs imports `plan-mode-bundle.cjs`.", { files, graph: miniGraph });
+  assert.deepEqual(r.violations.map((v) => v.value), ["electron/main.cjs calls runPipeline"]);
+  assert.ok(r.verified.some((v) => v.type === "relation" && v.value === "electron/main.cjs imports plan-mode-bundle.cjs"));
+});
+
+test("negated relation sentences are not treated as claims", () => {
+  const r = verifyGrounding("`electron/main.cjs` does not call `runPipeline` directly.", { files, graph: miniGraph });
+  assert.equal(r.violations.filter((v) => v.type === "relation").length, 0);
+});
+
+test("code-shaped backticked symbols must exist in the map; plain words, flags and env vars are left alone", () => {
+  const r = verifyGrounding("Uses `PlanModeOrchestrator.run`, `runPipeline()` and `inventedHelper()`. Set `ANTHROPIC_API_KEY`, run `npm`, pass `--json`.", { files, graph: miniGraph });
+  assert.deepEqual(r.violations.map((v) => v.value), ["inventedHelper"]);
+  assert.equal(r.verified.filter((v) => v.type === "symbol").length, 2);
+});
+
+test("technology names like Next.js / Node.js are not file claims", () => {
+  const r = verifyGrounding("Built with Next.js on Node.js.", { files });
+  assert.equal(r.grounded, true);
+});
+
+test("no false alarms from real answers: nouns like 'call site', JS built-ins, and Map'd's own vocabulary", () => {
+  const text = "`electron/main.cjs` imports the bundle; the context doesn't show the exact call site in `main.cjs`. " +
+    "Calls go through `require()` and `JSON.parse()`. The source is classified `dynamicallyLoaded`.";
+  const r = verifyGrounding(text, { files, graph: miniGraph });
+  assert.deepEqual(r.violations, []);
+  assert.ok(r.verified.some((v) => v.type === "file"), "verified files are tallied too");
+});

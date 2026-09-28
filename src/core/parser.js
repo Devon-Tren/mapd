@@ -352,6 +352,10 @@ export function parseJsFile(absPath, relPath) {
   return node;
 }
 
+// Directory names skipped at ANY depth no matter what .mapdrc says: installed
+// dependencies are never project source. (.mapdrc excludes are root-anchored —
+// "node_modules/**" alone let a nested app's packages/x/node_modules flood the map.)
+export const ALWAYS_IGNORE = new Set(["node_modules"]);
 export const DEFAULT_IGNORE = new Set(["node_modules", ".git", "dist", "build", "coverage", ".mapd", ".next", "out"]);
 
 function normalizeRelPath(rel) {

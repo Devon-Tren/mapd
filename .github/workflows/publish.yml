@@ -1,0 +1,31 @@
+name: publish
+# Release = push a version tag:  git tag v0.21.1 && git push origin v0.21.1
+# Authenticates to npm with GitHub OIDC (trusted publishing): no token, no OTP,
+# and npm attaches a provenance attestation. Requires a trusted publisher on
+# npmjs.com → @dev-tren/mapd → Settings: repo Devon-Tren/mapd, workflow publish.yml.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # trusted publishing needs npm >= 11.5.1
+      - run: npm install -g npm@latest
+      - name: Tag must match package.json version
+        run: |
+          v="$(node -p "require('./package.json').version")"
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then echo "tag $GITHUB_REF_NAME != package.json v$v"; exit 1; fi
+      - run: npm ci
+      - run: npm test
+      - run: npm publish

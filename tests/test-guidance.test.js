@@ -65,3 +65,15 @@ test("test-credit --padding surfaces only the coincidental credits", () => {
   const padding = testCredit(a, { paddingOnly: true }).map((f) => f.file);
   assert.deepEqual(padding, ["widget.js"]);
 });
+
+test("name matching is whole-token: a short basename is not credited by every test whose path contains that letter", () => {
+  const dir = fixture();
+  fs.writeFileSync(path.join(dir, "a.js"), `export function a(){ return 0; }\n`);
+  fs.writeFileSync(path.join(dir, "test.js"), `export function t(){ return 0; }\n`);
+  fs.writeFileSync(path.join(dir, "tests", "widget-extras.spec.js"), `const y = 2;\n`);
+  const a = analyzeTestCoverage(dir, buildScoredGraph(dir));
+  const by = Object.fromEntries(a.files.map((f) => [f.file, f]));
+  assert.equal(by["a.js"].status, "untested", "'a' is a substring of 'tests/...' but not a name token");
+  assert.equal(by["test.js"].status, "untested", "generic 'test' tokens name nothing");
+  assert.ok(by["widget.js"].credits.some((c) => c.test === "tests/widget-extras.spec.js"), "hyphenated test names still match by word");
+});

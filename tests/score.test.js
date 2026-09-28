@@ -75,3 +75,45 @@ test("delta: attributes a testPresence gain between two snapshots", () => {
   const tp = d.signals.find((s) => s.signal === "testPresence");
   assert.ok(tp && tp.delta > 0, "the gain must be attributed to testPresence");
 });
+
+// ── per-workflow scoring (schema 4) ──────────────────────────────────────────
+function twoWorkflowProject() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mapd-perwf-"));
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({
+    name: "t", type: "module", scripts: { clean: "node clean.js", messy: "node messy.js", quiet: "node quiet.js" },
+  }));
+  fs.writeFileSync(path.join(dir, "clean.js"), `function a(){ return 1; }\nfunction b(){ return a(); }\nb();\n`);
+  fs.writeFileSync(path.join(dir, "messy.js"), `function m(){ return mystery1() + mystery2(); }\nm();\n`);
+  fs.writeFileSync(path.join(dir, "quiet.js"), `export const x = 1;\n`);
+  fs.writeFileSync(path.join(dir, "stray.js"), `export const y = 2;\n`); // orphan → repo coverage < 1
+  return dir;
+}
+
+test("resolutionRate is measured per workflow, so a clean workflow no longer shares a messy one's number", () => {
+  const g = buildScoredGraph(twoWorkflowProject());
+  const wf = (name) => g.workflows.find((w) => w.id.endsWith(`${name}.js`)).confidence;
+  assert.equal(wf("clean").signals.resolutionRate.value, 1);
+  assert.ok(wf("messy").signals.resolutionRate.value < 1, "messy calls undefined functions");
+  assert.ok(wf("clean").score > wf("messy").score);
+});
+
+test("a workflow with no calls reports resolutionRate unavailable (no-calls) instead of a borrowed or vacuous value", () => {
+  const g = buildScoredGraph(twoWorkflowProject());
+  const quiet = g.workflows.find((w) => w.id.endsWith("quiet.js")).confidence;
+  assert.equal(quiet.signals.resolutionRate.unavailable, true);
+  assert.equal(quiet.signals.resolutionRate.reason, "no-calls");
+  assert.ok(quiet.signalCoverage < 1);
+  assert.ok(ceilingScore(g.root, g).caps.some((c) => c.cap === "no-calls"));
+});
+
+test("coverageOfRepo is repo-level: repoConfidence = 0.9 × size-weighted workflow mean + 0.1 × coverage, and explain sums to it", () => {
+  const g = buildScoredGraph(twoWorkflowProject());
+  for (const w of g.workflows) assert.equal(w.confidence.signals.coverageOfRepo, undefined);
+  const total = g.workflows.reduce((a, w) => a + w.files.length, 0);
+  const mean = g.workflows.reduce((a, w) => a + w.confidence.score * (w.files.length / total), 0);
+  const coverage = g.repoSignals.coverageOfRepo.value;
+  assert.ok(coverage < 1, "stray.js is unreached");
+  assert.ok(Math.abs(g.repoConfidence - (0.9 * mean + 0.1 * coverage)) <= 0.002);
+  const summed = explainScore(g).repoSignals.reduce((a, s) => a + s.contribution, 0);
+  assert.ok(Math.abs(summed - g.repoConfidence) <= 0.003, `explain ${summed} vs repo ${g.repoConfidence}`);
+});

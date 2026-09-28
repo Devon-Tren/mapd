@@ -20,8 +20,7 @@
  */
 
 import { createAnthropicClientLoader } from "./anthropicClient.js";
-
-const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
+import { resolveAnthropicModel, pinnedModel, FALLBACK_SONNET } from "./modelResolver.js";
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 // Moonshot renames/adds Kimi model identifiers over time — verify the current
 // one at https://platform.moonshot.ai/docs before relying on this default;
@@ -115,24 +114,40 @@ function createOpenAiCompatibleProvider({ name, model, apiKeyEnv, baseUrl }) {
 }
 
 export function anthropicProvider(config = {}) {
-  const model = process.env.MAPD_MODEL || config.providers?.anthropic?.model || DEFAULT_ANTHROPIC_MODEL;
   const client = createAnthropicClientLoader();
+  let resolved = null; // { model, source } — resolved once per process, on first use
   async function callOnce(c, { system, user, maxTokens, signal }) {
     const msg = await c.messages.create(
-      { model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] },
+      { model: resolved.model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] },
       { signal },
     );
+    if (msg.model) provider.lastModelUsed = msg.model; // what actually answered, as the API reports it
     const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
     return { text: text || null, truncated: msg.stop_reason === "max_tokens" };
   }
 
-  return {
+  const provider = {
     name: "anthropic",
-    model,
+    // Until resolved: the pin, or the fallback. Unpinned, the real value is the
+    // newest Sonnet the Models API lists (see modelResolver.js).
+    model: pinnedModel(config) ?? FALLBACK_SONNET,
+    modelSource: pinnedModel(config) ? "pinned" : "unresolved",
+    lastModelUsed: null,
     available: () => !!process.env.ANTHROPIC_API_KEY,
+    async resolveModel() {
+      const c = await client();
+      if (!c) return { model: provider.model, source: provider.modelSource };
+      if (!resolved) {
+        resolved = await resolveAnthropicModel(c, { config });
+        provider.model = resolved.model;
+        provider.modelSource = resolved.source;
+      }
+      return resolved;
+    },
     async complete(system, user, maxTokens = 1500, { signal } = {}) {
       const c = await client();
       if (!c) return null;
+      await provider.resolveModel();
       try {
         let result = await callOnce(c, { system, user, maxTokens, signal });
         // Same bounded-retry-then-disclose policy as the OpenAI-compatible
@@ -148,6 +163,7 @@ export function anthropicProvider(config = {}) {
       }
     },
   };
+  return provider;
 }
 
 export function openaiCompatProvider(config = {}) {

@@ -241,6 +241,9 @@ async function mapAction(dir, opts) {
     console.log(`  ${confidenceColor(wf.confidence.score)(`[${wf.confidence.score}]`)} ${wf.id}  ${dim(`(${wf.files.length} files, signal coverage ${wf.confidence.signalCoverage})`)}`);
   }
   if (g.orphans.length) console.log(`\n  ${yellow("orphans:")} ${wrapList(g.orphans, { width: 90, indent: "           " })}`);
+  // `check` only flags NEW parse failures vs the baseline, so one that predates it would otherwise never be shown
+  const unparsed = g.files.filter((f) => !f.parsed && f.parserKind !== "heuristic").map((f) => f.file);
+  if (unparsed.length) console.log(`\n  ${red("failed to parse:")} ${wrapList(unparsed, { width: 90, indent: "                   " })}  ${dim("(contents invisible to the map)")}`);
   if (g.stats.heuristicFileCount) {
     console.log(`\n  ${dim(`${g.stats.heuristicFileCount} non-JS/TS file(s) mapped by heuristic language adapters (half-weight in confidence; disable with .mapdrc mapping.polyglot=false)`)}`);
   }
@@ -367,7 +370,7 @@ program
     if (opts.json) { console.log(JSON.stringify({ ok: true, findings, confidence, resolvedNow: saved.resolvedNow, path: saved.path }, null, 2)); return; }
     console.log(`\n${findings.length} finding(s) → ${saved.path} (status: awaiting-approval — nothing was modified)`);
     if (saved.resolvedNow) console.log(green(`${saved.resolvedNow} previously-open finding(s) auto-resolved — not reproduced by this re-check.`));
-    console.log(dim(`\nNext: mapd fix will auto-select and propose a fix for the strongest open finding.`));
+    console.log(dim(`\nNext: mapd fix --propose auto-selects the strongest open finding and proposes a gate-verified fix.`));
   });
 
 // `tools` — advanced/scriptable functionality that isn't part of the daily
@@ -800,7 +803,8 @@ fixCmd
       const tested = honestlyTestedFiles(g);
       const files = (evidence.files ?? []).map((f) => f.file);
       const inWorkflow = files.filter((f) => wfFiles.has(f));
-      const workflows = [...new Set((evidence.files ?? []).flatMap((f) => f.workflows ?? []))];
+      const named = evidence.finding?.rawEvidence?.workflow; // regression findings name their workflow directly
+      const workflows = [...new Set([...(named ? [named] : []), ...(evidence.files ?? []).flatMap((f) => f.workflows ?? [])])];
       const testedCount = inWorkflow.filter((f) => tested.has(f)).length;
       const riskByKind = { "parse-failure": "medium", "export-removed": "high", "workflow-removed": "high", "confidence-regression": "medium", "resolution-degradation": "medium" };
       const risk = riskByKind[evidence.kind] ?? (evidence.severity === "high" ? "high" : evidence.severity === "medium" ? "medium" : "low");
@@ -822,7 +826,7 @@ fixCmd
     }
 
     if (!opts.propose && !opts.dryRun) {
-      console.log("Nothing to do — pass --propose to generate a gate-verified fix proposal (or --dry-run to preview without saving).");
+      console.log("Nothing to do — pass --propose to generate a gate-verified fix proposal (or --dry-run to preview without saving; --impact <id> to size one first).");
       return;
     }
     if (!targetId) {
@@ -1062,7 +1066,7 @@ program
     }
     const config = loadConfig(abs);
     let data = buildSolutions(abs, { top: opts.top });
-    if (opts.narrate) data = await narrateSolutions(data, getProvider(config));
+    if (opts.narrate) data = await narrateSolutions(data, getProvider(config), { graph: buildScoredGraph(abs) });
     if (opts.json) { console.log(JSON.stringify(data, null, 2)); return; }
     console.log(renderSolutions(data));
   });

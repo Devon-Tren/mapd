@@ -175,7 +175,7 @@ document.getElementById('rr').textContent=(M.stats.resolutionRate*100).toFixed(1
 document.getElementById('gen').textContent='generated '+M.generatedAt+(M.stats.orphans?(' · '+M.stats.orphans+' orphan(s)'):'');
 
 // GRAPH: workflow cards with signal bars
-const SIG=['parseIntegrity','resolutionRate','testPresence','stability','coverageOfRepo'];
+const SIG=['parseIntegrity','resolutionRate','testPresence','stability'];
 document.getElementById('v-graph').innerHTML=M.workflows.map(w=>{
   const bars=SIG.map(s=>{const v=w.signals[s];const val=v==null?0:v;const txt=v==null?'n/a':val.toFixed(2);
     return '<div class="sig"><span>'+s+'</span><div class="bar"><i style="width:'+(val*100)+'%;background:'+conf(val)+'"></i></div><span>'+txt+'</span></div>';}).join('');

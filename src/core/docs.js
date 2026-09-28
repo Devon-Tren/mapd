@@ -5,6 +5,7 @@
  */
 
 import { narrateWorkflow, llmAvailable } from "../agents/llm.js";
+import { verifyGrounding, describeGrounding } from "./grounding.js";
 
 const bar = (score) => {
   const n = Math.round(score * 10);
@@ -107,6 +108,13 @@ export async function renderDocs(graph, { withNarration = true } = {}) {
         lines.push(``);
         lines.push(`<!-- llm-narration: model-generated prose, structure above is ground truth -->`);
         lines.push(prose.trim());
+        // same mechanical check chat answers get: unsupported claims are marked in the doc itself
+        const check = verifyGrounding(prose, { files: graph.files.map((f) => f.file), workflowIds: graph.workflows.map((w) => w.id), graph });
+        const { bad } = describeGrounding(check);
+        if (bad.length) {
+          lines.push(``);
+          lines.push(`> ⚠ Unverified by the map: ${bad.join("; ")}.`);
+        }
       }
     }
     lines.push(``);

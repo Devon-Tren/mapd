@@ -226,7 +226,7 @@ export function createCommandTable(deps) {
       // chat already has a provider in hand when one's configured — narrate
       // automatically here, unlike the CLI's opt-in --narrate (no surprise
       // network calls from a scripted `mapd solutions` invocation).
-      if (deps.provider) data = await narrateSolutions(data, deps.provider);
+      if (deps.provider) data = await narrateSolutions(data, deps.provider, { graph: buildScoredGraph(abs) });
       return { ok: true, text: renderSolutions(data) };
     },
 
