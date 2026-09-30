@@ -1,6 +1,6 @@
 {
   "name": "@dev-tren/mapd",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "Verification-first project-understanding layer for humans and coding agents — deterministic workflow mapping, derived confidence, an interactive chat, a gate-verified fix engine, and an MCP server",
   "scripts": {
     "test": "node --test",
