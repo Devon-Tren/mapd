@@ -44,6 +44,7 @@ import { startViewServer, openBrowser } from "./core/viewServer.js";
 import { getProvider } from "./agents/provider.js";
 import { buildAssist, renderAssist } from "./core/assist.js";
 import { bold, dim, red, green, yellow, cyan, confidenceColor, wrapList } from "./core/theme.js";
+import { shouldCheck, refreshUpdateCache, updateNotice } from "./core/updateCheck.js";
 
 // Load .env (project cwd, then a user-level ~/.env fallback) before anything
 // else reads process.env (ANTHROPIC_API_KEY / OPENAI_API_KEY / KIMI_API_KEY,
@@ -62,7 +63,7 @@ const friendlyFail = (e) => {
 process.on("uncaughtException", friendlyFail);
 process.on("unhandledRejection", friendlyFail);
 
-const pkgVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+const { version: pkgVersion, name: pkgName } = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 const program = new Command();
 program.name("mapd")
@@ -1401,6 +1402,16 @@ configCmd
 // grounded in real project state, instead of a generic help dump. Anything
 // else (including `mapd --help`/`-h`/`--version`) still goes through
 // Commander normally.
+// A newer release on npm is announced once the command has finished (stderr,
+// cached daily — see updateCheck.js for when it stays silent).
+if (shouldCheck()) {
+  refreshUpdateCache(pkgName).catch(() => {});
+  process.on("exit", () => {
+    const notice = updateNotice(pkgVersion, pkgName);
+    if (notice) console.error(yellow(`\n${notice}`));
+  });
+}
+
 if (process.argv.length === 2) {
   console.log(renderAssist(buildAssist(process.cwd()), { bold, dim, cyan, confidenceColor }));
 } else {

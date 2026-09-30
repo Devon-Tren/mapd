@@ -101,7 +101,7 @@ function computeShapeHash(fnPath, locLines) {
  * Parse one file into a FileNode.
  * @returns {{
  *   file: string, lang: "js", parsed: boolean, parseErrors: number,
- *   functions: Array<{name: string, exported: boolean, async: boolean, loc: number, params: number, calls: string[]}>,
+ *   functions: Array<{name: string, exported: boolean, async: boolean, loc: number, line: number|null, endLine: number|null, params: number, calls: string[]}>,
  *   imports: Array<{source: string, names: string[]}>,
  *   exports: string[],
  *   loc: number
@@ -138,6 +138,8 @@ export function parseJsFile(absPath, relPath) {
     const entry = fns.get(name) ?? {
       name, calls: new Set(), async: !!fnNode.async,
       loc: fnNode.loc ? fnNode.loc.end.line - fnNode.loc.start.line + 1 : 0,
+      // where the definition sits, so a reader can open the exact lines
+      line: fnNode.loc?.start.line ?? null, endLine: fnNode.loc?.end.line ?? null,
       params: fnNode.params?.length ?? 0, exported: false,
     };
     entry.exported = entry.exported || exported;

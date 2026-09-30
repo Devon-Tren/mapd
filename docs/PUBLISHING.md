@@ -2,18 +2,24 @@
 
 ## How releases work
 
-Releases are published by GitHub Actions (`.github/workflows/publish.yml`) using
-npm **trusted publishing**: GitHub authenticates to npm over OIDC, so there is
-no token, no OTP and no 2FA prompt, and npm attaches a provenance attestation.
+**Automatic.** Every push to `main` that changes what ships (`src/**`,
+`package.json`, `package-lock.json`) is released by
+`.github/workflows/publish.yml`:
 
-```bash
-npm version 0.21.1 --no-git-tag-version   # bump package.json + lockfile
-git commit -am "0.21.1" && git push
-git tag v0.21.1 && git push origin v0.21.1   # this publishes
-```
+1. `npm ci` + the full test suite — a red suite publishes nothing.
+2. Version = the next patch after what npm has (0.21.0 → 0.21.1). To cut a
+   minor/major, bump `package.json` by hand (`npm version 0.22.0
+   --no-git-tag-version`) and push; a version above npm's is used as-is.
+3. `npm publish` over GitHub OIDC trusted publishing — no token, no OTP.
+4. The bump is committed back to `main` as `release vX.Y.Z [skip ci]` and
+   tagged `vX.Y.Z`. Pull before your next edit.
 
-The workflow refuses to publish if the tag does not match `package.json`, and
-runs the full test suite first.
+Opt out for one push: put `[skip release]` in the commit message. Docs-only
+pushes never release. A manual release: Actions → publish → Run workflow.
+
+Users see new releases: an installed `mapd` checks npm at most once a day and
+prints `mapd X is available — npm install -g @dev-tren/mapd` after a command
+(silent in CI, pipes, `--json`, `mcp`, or with `MAPD_NO_UPDATE_CHECK=1`).
 
 ## One-time setup
 
@@ -61,4 +67,4 @@ the install line changes to `npm install -g @dev-tren/mapd`.
 
 - [ ] Verify: `npm view @dev-tren/mapd` and a clean `npm i -g @dev-tren/mapd`
 - [ ] Update User-Tests' README — it still says `npm install -g mapd`
-- [ ] Set up trusted publishing so the next release is a tag
+- [x] Trusted publishing set up (2026-09-29); releases are automatic on push

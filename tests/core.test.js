@@ -45,6 +45,19 @@ test("parser extracts functions, imports, exports, var count, module type", () =
   assert.ok(inner.calls.includes("hi"));
 });
 
+test("parser records where each function is defined, so a reader can open the exact lines", () => {
+  const dir = tmpProject({
+    "a.js": `// header\nexport function hi(n) {\n  return n;\n}\n\nconst arrow = (x) =>\n  x * 2;\n`,
+  });
+  const n = parseJsFile(path.join(dir, "a.js"), "a.js");
+  const hi = n.functions.find((f) => f.name === "hi");
+  assert.equal(hi.line, 2);
+  assert.equal(hi.endLine, 4);
+  const arrow = n.functions.find((f) => f.name === "arrow");
+  assert.equal(arrow.line, 6);
+  assert.equal(arrow.endLine, 7);
+});
+
 test("unparseable file is recorded honestly, not guessed", () => {
   const dir = tmpProject({ "bad.js": "function ((((" });
   const r = parseProject(dir);

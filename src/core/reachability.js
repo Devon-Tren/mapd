@@ -350,6 +350,84 @@ export function detectWorkerUrls(rootDir, files, fileSet) {
   return results;
 }
 
+/**
+ * A file handed to the runtime by its path rather than imported: a server
+ * that reads `new URL("../dashboard/app.js", import.meta.url)` or
+ * `path.join(__dirname, "public/app.js")` to serve it, or an HTML page whose
+ * `<script src="./app.js">` loads it in the browser. None of these is an
+ * import, so the file otherwise reads as orphaned.
+ *
+ * AST-verified for JS/TS: the literal path must resolve, relative to the
+ * referencing file, to an EXACT file in the project (a directory is
+ * detectDynamicDirectoryReferences' job). For HTML, only a relative `src`
+ * is resolved — a root-absolute "/app.js" depends on how a server mounts the
+ * page, which static analysis cannot know, so it is left undetected.
+ * Worker URLs are skipped here; detectWorkerUrls reports them.
+ */
+const HTML_WALK_IGNORE = new Set(["node_modules", ".git", "dist", "build", "coverage", ".mapd", ".next", "out"]);
+const SCRIPT_SRC_RE = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+
+export function detectFileUrlReferences(rootDir, files, fileSet) {
+  const results = [];
+  for (const f of files) {
+    const relFile = f.file.split(path.sep).join("/");
+    if (!/\.(js|ts|jsx|tsx|mjs|cjs|mts|cts)$/.test(relFile)) continue;
+    let raw;
+    try { raw = fs.readFileSync(path.join(rootDir, relFile), "utf8"); } catch { continue; }
+    if (!raw.includes("import.meta.url") && !raw.includes("__dirname")) continue; // pre-filter only
+    let ast;
+    try { ast = parse(raw, BABEL_OPTS); } catch { continue; }
+    const fileDirPosix = path.posix.dirname(relFile);
+    const report = (literal, node, via) => {
+      const resolved = path.posix.normalize(path.posix.join(fileDirPosix, literal));
+      if (resolved !== relFile && fileSet.has(resolved)) {
+        results.push({ file: resolved, referencedFrom: relFile, line: node.loc?.start.line ?? null, via });
+      }
+    };
+
+    traverse(ast, {
+      NewExpression(p) {
+        const n = p.node;
+        if (n.callee?.type !== "Identifier" || n.callee.name !== "URL") return;
+        const parent = p.parent;
+        if (parent?.type === "NewExpression" && ["Worker", "SharedWorker"].includes(parent.callee?.name)) return;
+        const [spec, base] = n.arguments ?? [];
+        const isImportMetaUrl = base?.type === "MemberExpression" &&
+          base.object?.type === "MetaProperty" && base.property?.name === "url";
+        if (spec?.type === "StringLiteral" && isImportMetaUrl) report(spec.value, n, "new URL(..., import.meta.url)");
+      },
+      CallExpression(p) {
+        const literal = resolveLiteralOrDirnamePath(p.node);
+        if (literal && p.node.callee?.type === "MemberExpression") report(literal, p.node, `path.${p.node.callee.property?.name}(__dirname, ...)`);
+      },
+    });
+  }
+
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (!HTML_WALK_IGNORE.has(entry.name)) walk(abs); continue; }
+      if (!/\.html?$/i.test(entry.name)) continue;
+      const relHtml = path.relative(rootDir, abs).split(path.sep).join("/");
+      let html;
+      try { html = fs.readFileSync(abs, "utf8"); } catch { continue; }
+      for (const m of html.matchAll(SCRIPT_SRC_RE)) {
+        const src = m[1].split(/[?#]/)[0];
+        if (!src || src.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(src)) continue; // root-absolute or a URL
+        const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(relHtml), src));
+        if (fileSet.has(resolved)) {
+          const line = html.slice(0, m.index).split("\n").length;
+          results.push({ file: resolved, referencedFrom: relHtml, line, via: "<script src>" });
+        }
+      }
+    }
+  };
+  walk(rootDir);
+  return results;
+}
+
 const TEST_GLOB_CONFIGS = [
   "playwright.config.ts", "playwright.config.js", "playwright.config.mjs", "playwright.config.cjs",
   "vitest.config.ts", "vitest.config.js", "vitest.config.mjs", "vitest.config.cjs",
@@ -408,11 +486,11 @@ export function detectTestGlobDirectories(rootDir, fileSet) {
 export function globToRegex(pattern) {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   const body = escaped
-    .replace(/\*\*\//g, " ANYDIR ")
-    .replace(/\*\*/g, " ANY ")
+    .replace(/\*\*\//g, "\u0000ANYDIR\u0000")
+    .replace(/\*\*/g, "\u0000ANY\u0000")
     .replace(/\*/g, "[^/]*")
-    .replace(/ ANYDIR /g, "(?:.*/)?")
-    .replace(/ ANY /g, ".*");
+    .replace(/\u0000ANYDIR\u0000/g, "(?:.*/)?")
+    .replace(/\u0000ANY\u0000/g, ".*");
   return new RegExp(`^${body}$`);
 }
 
@@ -495,10 +573,16 @@ export function classifyUncoveredFiles(rootDir, files, fileSet, uncovered, gener
     if (!dynamicDirs.has(ref.dir)) dynamicDirs.set(ref.dir, []);
     dynamicDirs.get(ref.dir).push(ref);
   }
-  // file-level dynamic references: import.meta.glob matches and Worker URLs
-  // name EXACT files (verified to exist), not just a directory
+  // file-level dynamic references: import.meta.glob matches, Worker URLs and
+  // files handed to the runtime by path name EXACT files (verified to exist),
+  // not just a directory
   const dynamicFiles = new Map(); // file -> evidence[]
-  for (const ref of [...detectImportMetaGlobs(rootDir, files, fileSet), ...detectWorkerUrls(rootDir, files, fileSet)]) {
+  const fileRefs = [
+    ...detectImportMetaGlobs(rootDir, files, fileSet),
+    ...detectWorkerUrls(rootDir, files, fileSet),
+    ...detectFileUrlReferences(rootDir, files, fileSet),
+  ];
+  for (const ref of fileRefs) {
     if (!dynamicFiles.has(ref.file)) dynamicFiles.set(ref.file, []);
     dynamicFiles.get(ref.file).push(ref);
   }

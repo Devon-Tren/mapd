@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseProject } from "../src/core/parser.js";
-import { detectImportMetaGlobs, detectWorkerUrls, classifyUncoveredFiles, detectGeneratedFiles } from "../src/core/reachability.js";
+import { detectImportMetaGlobs, detectWorkerUrls, detectFileUrlReferences, classifyUncoveredFiles, detectGeneratedFiles } from "../src/core/reachability.js";
 
 function tmpProject() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mapd-runtimeedge-"));
@@ -82,4 +82,52 @@ test("classifyUncoveredFiles: glob-matched and worker files classify as dynamica
   const result = classifyUncoveredFiles(dir, files, fileSet, uncovered, detectGeneratedFiles(dir, fileSet, null));
   assert.deepEqual(result.dynamicallyLoaded.map((d) => d.file).sort(), ["modules/a.js", "worker.js"]);
   assert.deepEqual(result.trulyOrphaned, ["orphan.js"]);
+});
+
+test("detectFileUrlReferences: a file served by path — new URL(import.meta.url), path.join(__dirname), <script src> — resolves to the real file", () => {
+  const dir = tmpProject();
+  write(dir, "public/app.js", "window.go = () => 1;\n");
+  write(dir, "public/legacy.js", "window.old = 1;\n");
+  write(dir, "public/page.html", `<html><body>\n<script src="./legacy.js?v=2"></script>\n</body></html>\n`);
+  write(dir, "src/visual.js", "export const v = 1;\n");
+  write(dir, "src/server.js", [
+    `import path from "node:path";`,
+    `export const a = new URL("../public/app.js", import.meta.url);`,
+    `export const b = path.join(__dirname, "visual.js");`,
+  ].join("\n") + "\n");
+  const { files, fileSet } = parsedOf(dir);
+  const results = detectFileUrlReferences(dir, files, fileSet);
+  const byFile = Object.fromEntries(results.map((r) => [r.file, r]));
+  assert.deepEqual(Object.keys(byFile).sort(), ["public/app.js", "public/legacy.js", "src/visual.js"]);
+  assert.equal(byFile["public/app.js"].referencedFrom, "src/server.js");
+  assert.equal(byFile["public/app.js"].line, 2);
+  assert.match(byFile["src/visual.js"].via, /path\.join/);
+  assert.equal(byFile["public/legacy.js"].referencedFrom, "public/page.html");
+  assert.equal(byFile["public/legacy.js"].line, 2);
+});
+
+test("detectFileUrlReferences: never fabricates — missing files, root-absolute or remote script src, Worker URLs, other bases", () => {
+  const dir = tmpProject();
+  write(dir, "app.js", "export default 1;\n");
+  write(dir, "worker.js", "self.onmessage = () => {};\n");
+  write(dir, "index.html", `<script src="/app.js"></script><script src="https://cdn.example/app.js"></script><script src="./gone.js"></script>\n`);
+  write(dir, "main.js", [
+    `export const a = new URL("./missing.js", import.meta.url);`,
+    `export const b = new URL("./app.js", base);`,
+    `export const w = () => new Worker(new URL("./worker.js", import.meta.url));`,
+    `export const d = path.join(cwd, "app.js");`,
+  ].join("\n") + "\n");
+  const { files, fileSet } = parsedOf(dir);
+  assert.deepEqual(detectFileUrlReferences(dir, files, fileSet), []);
+});
+
+test("classifyUncoveredFiles: a file served by path is dynamically-loaded with its call site, not orphaned", () => {
+  const dir = tmpProject();
+  write(dir, "dashboard/scene.js", "export function draw() {}\n");
+  write(dir, "server.js", `export const scene = new URL("./dashboard/scene.js", import.meta.url);\n`);
+  const { files, fileSet } = parsedOf(dir);
+  const out = classifyUncoveredFiles(dir, files, fileSet, ["dashboard/scene.js"], []);
+  assert.deepEqual(out.trulyOrphaned, []);
+  assert.equal(out.dynamicallyLoaded[0].file, "dashboard/scene.js");
+  assert.equal(out.dynamicallyLoaded[0].evidence[0].referencedFrom, "server.js");
 });

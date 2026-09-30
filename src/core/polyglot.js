@@ -201,7 +201,7 @@ export function parsePolyglotFile(absPath, relPath) {
     const { functions, imports, exports, entryHints } = extractor(lines, relPath);
     // a shebang is a verified executable marker in any language
     if (lines[0]?.startsWith("#!")) entryHints.push({ kind: "shebang", detail: lines[0].slice(0, 60) });
-    node.functions = functions.map((f) => ({ name: f.name, exported: f.exported, async: f.async, loc: 1, params: 0, calls: [] }));
+    node.functions = functions.map((f) => ({ name: f.name, exported: f.exported, async: f.async, loc: 1, line: f.line ?? null, endLine: null, params: 0, calls: [] }));
     node.imports = imports;
     node.exports = exports;
     node.entryHints = entryHints;

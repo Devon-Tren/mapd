@@ -12,7 +12,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const CACHE_SCHEMA = 1;
-const PARSER_SEMANTICS_VERSION = 2;
+const PARSER_SEMANTICS_VERSION = 3; // 3: functions carry line/endLine
 
 function cacheDir(rootDir) {
   return path.join(path.resolve(rootDir), ".mapd", "cache");

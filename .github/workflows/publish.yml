@@ -1,31 +1,73 @@
 name: publish
-# Release = push a version tag:  git tag v0.21.1 && git push origin v0.21.1
-# Authenticates to npm with GitHub OIDC (trusted publishing): no token, no OTP,
-# and npm attaches a provenance attestation. Requires a trusted publisher on
-# npmjs.com → @dev-tren/mapd → Settings: repo Devon-Tren/mapd, workflow publish.yml.
+# Every push to main that changes what ships (src/, package.json, lockfile)
+# is released automatically: tests → next version → npm publish → the version
+# bump and a vX.Y.Z tag are committed back to main.
+#
+# Version: the next patch after what npm has, unless package.json was bumped
+# by hand past it (e.g. to 0.22.0 or 1.0.0) — then that version is used.
+# Opt out for one push: put [skip release] in the commit message.
+# Manual run: Actions → publish → Run workflow.
+#
+# Auth is GitHub OIDC trusted publishing — no token, no OTP. Requires the
+# trusted publisher on npmjs.com (@dev-tren/mapd → Settings): Devon-Tren/mapd,
+# workflow publish.yml, "Allow npm publish" ticked. The bump commit is pushed
+# with GITHUB_TOKEN, which never re-triggers workflows, so this cannot loop.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: ["src/**", "package.json", "package-lock.json"]
+  workflow_dispatch:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   publish:
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
       # trusted publishing needs npm >= 11.5.1
       - run: npm install -g npm@latest
-      - name: Tag must match package.json version
-        run: |
-          v="$(node -p "require('./package.json').version")"
-          if [ "v$v" != "$GITHUB_REF_NAME" ]; then echo "tag $GITHUB_REF_NAME != package.json v$v"; exit 1; fi
       - run: npm ci
       - run: npm test
+
+      - name: Choose version
+        id: version
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          local="$(node -p "require('./package.json').version")"
+          published="$(npm view "$name" version 2>/dev/null || echo 0.0.0)"
+          next="$(node -e '
+            const [l, p] = process.argv.slice(1).map((v) => v.split(".").map(Number));
+            const gt = l[0] - p[0] || l[1] - p[1] || l[2] - p[2];
+            console.log(gt > 0 ? l.join(".") : [p[0], p[1], p[2] + 1].join("."));
+          ' "$local" "$published")"
+          echo "published $published, package.json $local → releasing $next"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Set version
+        run: npm version "${{ steps.version.outputs.next }}" --no-git-tag-version --allow-same-version
+
       - run: npm publish
+
+      - name: Commit version bump and tag
+        run: |
+          v="${{ steps.version.outputs.next }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release v$v [skip ci]" || echo "version already $v"
+          git pull --rebase origin main   # main may have moved while this ran
+          git tag "v$v"                   # tag AFTER the rebase, so it points at the pushed commit
+          git push origin HEAD:main "v$v"
