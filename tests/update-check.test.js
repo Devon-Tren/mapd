@@ -48,4 +48,5 @@ test("stays silent for CI, pipes, --json, mcp, opt-out, and source checkouts", (
   assert.equal(shouldCheck({ ...base, argv: ["node", "mapd", "map", "--json"] }), false);
   assert.equal(shouldCheck({ ...base, argv: ["node", "mapd", "mcp"] }), false);
   assert.equal(shouldCheck({ ...base, modulePath: "/Users/x/Downloads/mapd-v0/src/core/updateCheck.js" }), false);
+  assert.equal(shouldCheck({ ...base, modulePath: "C:\\Users\\x\\AppData\\Roaming\\npm\\node_modules\\@dev-tren\\mapd\\src\\core\\updateCheck.js" }), true);
 });

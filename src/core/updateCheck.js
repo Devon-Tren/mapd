@@ -30,7 +30,7 @@ export function isNewer(a, b) {
 export function shouldCheck({ argv = process.argv, env = process.env, isTTY = process.stderr.isTTY, modulePath = fileURLToPath(import.meta.url) } = {}) {
   if (!isTTY || env.CI || env.MAPD_NO_UPDATE_CHECK) return false;
   if (argv.includes("--json") || argv.slice(2).includes("mcp")) return false;
-  return modulePath.split(path.sep).includes("node_modules"); // a dev checkout updates via git, not npm
+  return modulePath.split(/[\\/]/).includes("node_modules"); // a dev checkout updates via git, not npm
 }
 
 function readCache(file) {
